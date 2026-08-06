@@ -1,0 +1,33 @@
+{
+  "name": "ai-sdk-threads",
+  "version": "0.0.1",
+  "description": "Chat thread and message persistence for the Vercel AI SDK",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nixrajput/ai-sdk-threads.git"
+  },
+  "homepage": "https://github.com/nixrajput/ai-sdk-threads#readme",
+  "bugs": "https://github.com/nixrajput/ai-sdk-threads/issues",
+  "author": "Nikhil Rajput (https://github.com/nixrajput)",
+  "license": "MIT",
+  "keywords": [
+    "ai",
+    "ai-sdk",
+    "vercel-ai-sdk",
+    "chat",
+    "persistence",
+    "threads",
+    "chat-history"
+  ]
+}
