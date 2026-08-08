@@ -141,7 +141,11 @@ Load the history when the page renders and hand it straight to `useChat`:
 import { store } from "@/lib/threads";
 import { Chat } from "./chat";
 
-export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = await params;
   const messages = await store.loadMessages(id);
   return <Chat id={id} initialMessages={messages} />;
@@ -154,7 +158,13 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 
-export function Chat({ id, initialMessages }: { id: string; initialMessages: UIMessage[] }) {
+export function Chat({
+  id,
+  initialMessages,
+}: {
+  id: string;
+  initialMessages: UIMessage[];
+}) {
   const { messages, sendMessage } = useChat({ id, messages: initialMessages });
   // ...
 }
@@ -163,7 +173,10 @@ export function Chat({ id, initialMessages }: { id: string; initialMessages: UIM
 Creating a thread before the first message:
 
 ```ts
-const thread = await store.createThread({ userId: session.user.id, title: "New chat" });
+const thread = await store.createThread({
+  userId: session.user.id,
+  title: "New chat",
+});
 redirect(`/chat/${thread.id}`);
 ```
 
@@ -181,13 +194,13 @@ const store = createThreadStore(db);
 
 ### Threads
 
-| Method                     | Returns                                | Notes                                                                              |
-| -------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- |
-| `createThread(input?)`     | `Promise<Thread>`                      | `input`: `{ id?, userId?, title?, metadata? }`. An id is generated when omitted.    |
-| `getThread(id)`            | `Promise<Thread \| null>`              | `null` rather than a throw, so a missing thread is a 404 you handle.                |
-| `listThreads(query?)`      | `Promise<{ threads, nextCursor? }>`    | `query`: `{ userId?, limit?, cursor? }`. Newest first, default limit 20.            |
-| `updateThread(id, patch)`  | `Promise<Thread>`                      | `patch`: `{ title?, visibility?, metadata? }`. Throws if the thread does not exist. |
-| `deleteThread(id)`         | `Promise<void>`                        | Messages cascade with it. Deleting an absent thread is a no-op.                     |
+| Method                    | Returns                             | Notes                                                                               |
+| ------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------- |
+| `createThread(input?)`    | `Promise<Thread>`                   | `input`: `{ id?, userId?, title?, metadata? }`. An id is generated when omitted.    |
+| `getThread(id)`           | `Promise<Thread \| null>`           | `null` rather than a throw, so a missing thread is a 404 you handle.                |
+| `listThreads(query?)`     | `Promise<{ threads, nextCursor? }>` | `query`: `{ userId?, limit?, cursor? }`. Newest first, default limit 20.            |
+| `updateThread(id, patch)` | `Promise<Thread>`                   | `patch`: `{ title?, visibility?, metadata? }`. Throws if the thread does not exist. |
+| `deleteThread(id)`        | `Promise<void>`                     | Messages cascade with it. Deleting an absent thread is a no-op.                     |
 
 `listThreads` pages with a keyset cursor over `(createdAt, id)`, so pass `nextCursor` back to get the next page and stop when it comes back `undefined`:
 
@@ -204,10 +217,10 @@ A `Thread` is `{ id, userId, title, visibility, activeLeafId, metadata, createdA
 
 ### Messages
 
-| Method                             | Returns                     | Notes                                                              |
-| ---------------------------------- | --------------------------- | ------------------------------------------------------------------ |
-| `appendMessages(threadId, msgs)`   | `Promise<StoredMessage[]>`  | Takes `UIMessage[]`. Transactional. Throws if the thread is absent. |
-| `loadMessages(threadId)`           | `Promise<UIMessage[]>`      | Ordered oldest first, validated by the SDK before it is returned.   |
+| Method                           | Returns                    | Notes                                                               |
+| -------------------------------- | -------------------------- | ------------------------------------------------------------------- |
+| `appendMessages(threadId, msgs)` | `Promise<StoredMessage[]>` | Takes `UIMessage[]`. Transactional. Throws if the thread is absent. |
+| `loadMessages(threadId)`         | `Promise<UIMessage[]>`     | Ordered oldest first, validated by the SDK before it is returned.   |
 
 `appendMessages` uses each `UIMessage`'s own `id` as the row's primary key, because `useChat` already owns message ids. Messages are chained to the end of the thread and the thread's `activeLeafId` moves to the last one, inside one transaction that locks the thread row - so two concurrent appends cannot interleave.
 
@@ -224,7 +237,14 @@ const uiMessages = convertToUIMessages([
   { role: "user", content: "weather?" },
   {
     role: "assistant",
-    content: [{ type: "tool-call", toolCallId: "c1", toolName: "getWeather", input: { city: "x" } }],
+    content: [
+      {
+        type: "tool-call",
+        toolCallId: "c1",
+        toolName: "getWeather",
+        input: { city: "x" },
+      },
+    ],
   },
   {
     role: "tool",
@@ -258,27 +278,27 @@ Walks `parentId` links from a leaf back to the root and returns the rows oldest 
 import { messages, threads } from "ai-sdk-threads/drizzle";
 ```
 
-| `ai_sdk_threads` | Type          | Notes                                    |
-| ---------------- | ------------- | ---------------------------------------- |
-| `id`             | `text` PK     |                                          |
-| `user_id`        | `text`        | Indexed. Nullable for anonymous chats.   |
-| `title`          | `text`        |                                          |
-| `visibility`     | `text`        | `'private'` (default) or `'public'`.     |
-| `active_leaf_id` | `text`        | The last message on the live path.       |
-| `metadata`       | `jsonb`       | Yours to use.                            |
-| `created_at`     | `timestamptz` |                                          |
+| `ai_sdk_threads` | Type          | Notes                                         |
+| ---------------- | ------------- | --------------------------------------------- |
+| `id`             | `text` PK     |                                               |
+| `user_id`        | `text`        | Indexed. Nullable for anonymous chats.        |
+| `title`          | `text`        |                                               |
+| `visibility`     | `text`        | `'private'` (default) or `'public'`.          |
+| `active_leaf_id` | `text`        | The last message on the live path.            |
+| `metadata`       | `jsonb`       | Yours to use.                                 |
+| `created_at`     | `timestamptz` |                                               |
 | `updated_at`     | `timestamptz` | Moved by `appendMessages` and `updateThread`. |
 
-| `ai_sdk_messages` | Type          | Notes                                            |
-| ----------------- | ------------- | ------------------------------------------------ |
-| `id`              | `text` PK     | The `UIMessage` id.                              |
-| `thread_id`       | `text`        | Indexed, `ON DELETE CASCADE`.                    |
-| `parent_id`       | `text`        | The message this one answers.                    |
-| `role`            | `text`        | `'system'`, `'user'`, or `'assistant'`.          |
-| `parts`           | `jsonb`       | `UIMessage.parts`, verbatim.                     |
-| `metadata`        | `jsonb`       | `UIMessage.metadata`, verbatim.                  |
-| `sdk_version`     | `smallint`    | The `ai` major that wrote the row.               |
-| `created_at`      | `timestamptz` |                                                  |
+| `ai_sdk_messages` | Type          | Notes                                   |
+| ----------------- | ------------- | --------------------------------------- |
+| `id`              | `text` PK     | The `UIMessage` id.                     |
+| `thread_id`       | `text`        | Indexed, `ON DELETE CASCADE`.           |
+| `parent_id`       | `text`        | The message this one answers.           |
+| `role`            | `text`        | `'system'`, `'user'`, or `'assistant'`. |
+| `parts`           | `jsonb`       | `UIMessage.parts`, verbatim.            |
+| `metadata`        | `jsonb`       | `UIMessage.metadata`, verbatim.         |
+| `sdk_version`     | `smallint`    | The `ai` major that wrote the row.      |
+| `created_at`      | `timestamptz` |                                         |
 
 ## How messages are stored
 
