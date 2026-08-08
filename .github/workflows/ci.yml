@@ -1,10 +1,13 @@
 name: CI
 
+# `develop` is the integration branch that accumulates versions before a release.
+# It is listed here so PRs into it are gated too - release.yml deliberately stays
+# main-only, so merging here builds and tests but publishes nothing.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
