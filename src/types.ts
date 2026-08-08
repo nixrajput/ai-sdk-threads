@@ -9,6 +9,8 @@ export interface Thread {
   title: string | null;
   visibility: "private" | "public";
   activeLeafId: string | null;
+  /** Set while a reply is streaming, so a reconnecting client can resume it. */
+  activeStreamId: string | null;
   metadata: Record<string, unknown> | null;
   createdAt: Date;
   updatedAt: Date;
@@ -53,4 +55,6 @@ export interface ThreadStore {
   deleteThread(id: string): Promise<void>;
   appendMessages(threadId: string, messages: UIMessage[]): Promise<StoredMessage[]>;
   loadMessages(threadId: string): Promise<UIMessage[]>;
+  setActiveStream(threadId: string, streamId: string | null): Promise<void>;
+  getActiveStream(threadId: string): Promise<string | null>;
 }

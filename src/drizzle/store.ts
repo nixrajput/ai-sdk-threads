@@ -206,6 +206,25 @@ export function createThreadStore(
       });
     },
 
+    async setActiveStream(threadId: string, streamId: string | null): Promise<void> {
+      const [row] = await db
+        .update(threads)
+        .set({ activeStreamId: streamId })
+        .where(eq(threads.id, threadId))
+        .returning({ id: threads.id });
+      if (!row) throw notFound(threadId);
+    },
+
+    async getActiveStream(threadId: string): Promise<string | null> {
+      const [row] = await db
+        .select({ activeStreamId: threads.activeStreamId })
+        .from(threads)
+        .where(eq(threads.id, threadId))
+        .limit(1);
+      if (!row) throw notFound(threadId);
+      return row.activeStreamId;
+    },
+
     async loadMessages(threadId: string): Promise<UIMessage[]> {
       const [thread] = await db
         .select({ activeLeafId: threads.activeLeafId })

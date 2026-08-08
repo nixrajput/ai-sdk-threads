@@ -11,6 +11,7 @@ const DDL = `
     title text,
     visibility text NOT NULL DEFAULT 'private',
     active_leaf_id text,
+    active_stream_id text,
     metadata jsonb,
     created_at timestamptz(3) NOT NULL DEFAULT now(),
     updated_at timestamptz(3) NOT NULL DEFAULT now()

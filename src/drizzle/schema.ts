@@ -18,6 +18,7 @@ export const threads = pgTable(
       .notNull()
       .default("private"),
     activeLeafId: text("active_leaf_id"),
+    activeStreamId: text("active_stream_id"),
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true, precision: TIMESTAMP_PRECISION })
       .notNull()

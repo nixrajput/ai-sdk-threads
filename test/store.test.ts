@@ -99,3 +99,22 @@ describe("messages", () => {
     expect(loaded?.metadata).toEqual({ source: "test" });
   });
 });
+
+describe("stream state", () => {
+  test("set, read, and clear the active stream", async () => {
+    const t = await store.createThread({});
+    expect(await store.getActiveStream(t.id)).toBeNull();
+
+    await store.setActiveStream(t.id, "stream-1");
+    expect(await store.getActiveStream(t.id)).toBe("stream-1");
+    expect((await store.getThread(t.id))?.activeStreamId).toBe("stream-1");
+
+    await store.setActiveStream(t.id, null);
+    expect(await store.getActiveStream(t.id)).toBeNull();
+  });
+
+  test("both reject an unknown thread", async () => {
+    await expect(store.setActiveStream("nope", "s1")).rejects.toThrow(/thread/i);
+    await expect(store.getActiveStream("nope")).rejects.toThrow(/thread/i);
+  });
+});
