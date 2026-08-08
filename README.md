@@ -438,21 +438,26 @@ Messages have always formed a tree here - `parentId` on every row, `activeLeafId
 
 `chatHandler` wires the two common cases for you, from what the SDK client already sends:
 
-| The user does            | The client sends                              | The handler does                                    |
-| ------------------------ | --------------------------------------------- | --------------------------------------------------- |
-| `regenerate()`           | `trigger: "regenerate-message"` + `messageId` | `regenerateFrom` - the new answer becomes a sibling |
-| Edits an earlier message | `messageId` with changed parts                | `forkAt` - a new branch from that point             |
-| Retries unchanged        | `messageId` with identical parts              | nothing new is stored                               |
+| The user does            | The client sends                                      | The handler does                                     |
+| ------------------------ | ----------------------------------------------------- | ---------------------------------------------------- |
+| `regenerate()`           | `trigger: "regenerate-message"`, `messageId` optional | `regenerateFrom` - the new answer becomes a sibling  |
+| Edits an earlier message | `messageId` with changed parts                        | `replaceMessage` - the old version becomes a sibling |
+| Retries unchanged        | `messageId` with identical parts                      | nothing new is stored                                |
+
+A bare `regenerate()` sends no `messageId`, meaning "redo the last answer" - that is handled. Regenerating a **user** message re-answers it rather than removing it. An id that is not on the thread's current path answers **400** rather than silently dropping the edit.
 
 So regenerate and edit work with no extra code. The store methods are there for the UI:
 
-| Method                        | Returns                    | Notes                                                           |
-| ----------------------------- | -------------------------- | --------------------------------------------------------------- |
-| `siblingsOf(messageId)`       | `{ siblings, index }`      | Everything sharing that message's parent, oldest first.         |
-| `setActiveLeaf(threadId, id)` | `Promise<void>`            | Switches which path is live. Any message in the thread will do. |
-| `getTree(threadId)`           | `Promise<StoredMessage[]>` | Every message, flat. Walk `parentId` to rebuild the shape.      |
-| `forkAt(messageId, messages)` | `Promise<StoredMessage[]>` | New branch from that message's parent.                          |
-| `regenerateFrom(messageId)`   | `Promise<{ parentId }>`    | Moves the leaf to the parent so you can re-answer.              |
+| Method                                     | Returns                    | Notes                                                                 |
+| ------------------------------------------ | -------------------------- | --------------------------------------------------------------------- |
+| `siblingsOf(threadId, messageId)`          | `{ siblings, index }`      | Everything sharing that message's parent, oldest first.                |
+| `setActiveLeaf(threadId, messageId)`       | `Promise<void>`            | Switches which path is live. Any message in the thread will do.        |
+| `getTree(threadId)`                        | `Promise<StoredMessage[]>` | Every message, flat. Walk `parentId` to rebuild the shape.             |
+| `forkAt(threadId, messageId, messages)`    | `Promise<StoredMessage[]>` | New branch from that message's parent.                                 |
+| `replaceMessage(threadId, messageId, msg)` | `Promise<StoredMessage>`   | Rewrites a message, keeping its id; the old version becomes a sibling. |
+| `regenerateFrom(threadId, messageId)`      | `Promise<{ leafId }>`      | Points the leaf where a fresh answer belongs.                          |
+
+**Every one takes a `threadId`.** Message ids are a global primary key, so an id passed without its thread could reach another user's messages - these refuse an id that does not belong to the thread named.
 
 Previous/next buttons over an answer's variants are `siblingsOf` plus `setActiveLeaf`:
 
