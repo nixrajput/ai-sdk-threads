@@ -4,10 +4,10 @@
 
 Only the latest release on the `main` branch receives security fixes.
 
-| Version         | Supported |
-| --------------- | --------- |
-| 0.1.x (current) | Yes       |
-| 0.0.x (stub)    | No        |
+| Version       | Supported |
+| ------------- | --------- |
+| 1.x (current) | Yes       |
+| 0.0.x (stub)  | No        |
 
 ## Reporting a vulnerability
 

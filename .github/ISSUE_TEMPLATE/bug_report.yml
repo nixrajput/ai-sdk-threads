@@ -1,8 +1,8 @@
 name: Bug Report
 description: File a bug report for ai-sdk-threads
-title: '[Bug]: '
-labels: ['bug', 'triage']
-assignees: ['nixrajput']
+title: "[Bug]: "
+labels: ["bug", "triage"]
+assignees: ["nixrajput"]
 body:
   - type: markdown
     attributes:
@@ -32,7 +32,7 @@ body:
     attributes:
       label: What happened?
       description: Describe the bug clearly. What did you see, and what did you expect?
-      placeholder: 'Expected: ... Actual: ...'
+      placeholder: "Expected: ... Actual: ..."
     validations:
       required: true
 
@@ -54,7 +54,7 @@ body:
     attributes:
       label: ai-sdk-threads version
       description: The version you are running.
-      placeholder: 'e.g. 0.1.0'
+      placeholder: "e.g. 1.0.0"
     validations:
       required: true
 
@@ -63,7 +63,7 @@ body:
     attributes:
       label: AI SDK version
       description: The version of the `ai` package you are using.
-      placeholder: 'e.g. ai 7.0.58'
+      placeholder: "e.g. ai 7.0.58"
     validations:
       required: true
 
@@ -74,11 +74,11 @@ body:
       description: Which Postgres driver does your drizzle instance use?
       multiple: false
       options:
-        - 'node-postgres (pg)'
-        - 'postgres.js'
-        - '@neondatabase/serverless'
-        - '@vercel/postgres'
-        - '@electric-sql/pglite'
+        - "node-postgres (pg)"
+        - "postgres.js"
+        - "@neondatabase/serverless"
+        - "@vercel/postgres"
+        - "@electric-sql/pglite"
         - Other
         - Not applicable
     validations:
@@ -89,7 +89,7 @@ body:
     attributes:
       label: Node and drizzle-orm versions
       description: Output of `node -v` and your drizzle-orm version.
-      placeholder: 'e.g. node v22.16.0, drizzle-orm 0.45.2'
+      placeholder: "e.g. node v22.16.0, drizzle-orm 0.45.2"
     validations:
       required: true
 

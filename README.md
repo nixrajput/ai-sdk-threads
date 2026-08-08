@@ -86,7 +86,7 @@ ai-sdk-threads is those two tables and a small typed store over them. Message `p
 npm install ai-sdk-threads drizzle-orm
 ```
 
-`ai-threads` and `ai-sdk-persistence` on npm are reserved aliases of this package - install `ai-sdk-threads` itself.
+`ai-threads` and `ai-sdk-persistence` on npm are name reservations only - they contain no code and are not maintained. Install `ai-sdk-threads`.
 
 ### Add the tables to your schema
 
@@ -452,8 +452,8 @@ A bare `regenerate()` sends no `messageId`, meaning "redo the last answer" - tha
 
 So regenerate and edit work with no extra code. The store methods are there for the UI:
 
-| Method                                     | Returns                    | Notes                                                                 |
-| ------------------------------------------ | -------------------------- | --------------------------------------------------------------------- |
+| Method                                     | Returns                    | Notes                                                                  |
+| ------------------------------------------ | -------------------------- | ---------------------------------------------------------------------- |
 | `siblingsOf(threadId, messageId)`          | `{ siblings, index }`      | Everything sharing that message's parent, oldest first.                |
 | `setActiveLeaf(threadId, messageId)`       | `Promise<void>`            | Switches which path is live. Any message in the thread will do.        |
 | `getTree(threadId)`                        | `Promise<StoredMessage[]>` | Every message, flat. Walk `parentId` to rebuild the shape.             |
@@ -502,6 +502,8 @@ export { messages, threads } from "ai-sdk-threads/sqlite";
 ```
 
 Every method behaves identically; a parity suite runs the whole contract against both adapters, so the two cannot drift.
+
+**Do not use libsql's bare `:memory:`.** That database belongs to a single connection, and writes here run in a transaction which opens another - so it sees no tables at all. Use a file (`file:local.db`) or a remote libsql URL.
 
 **Async drivers only.** Writes use interactive transactions with an async callback, which `better-sqlite3` rejects outright and Bun's driver does not await - and Cloudflare D1 has no interactive transactions at all. libsql (local file or remote) is the supported and tested driver; on a sync driver, atomicity would be silently lost rather than reported. Two column types necessarily differ: `parts` and `metadata` are `text` with drizzle's `json` mode instead of `jsonb`, and timestamps are integer milliseconds instead of `timestamptz(3)` - the same precision the keyset cursor needs.
 
