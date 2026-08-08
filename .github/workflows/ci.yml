@@ -28,9 +28,10 @@ jobs:
       - name: Install
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      # build before test: the CLI tests exercise the built bin, which must exist first.
       - name: Run available scripts
         run: |
-          for s in lint ts:check test build; do
+          for s in lint ts:check build test; do
             if jq -e --arg s "$s" '.scripts[$s]' package.json >/dev/null; then
               npm run "$s"
             fi
@@ -81,6 +82,7 @@ jobs:
           node -e "console.log('ai', require('ai/package.json').version)"
           npm run lint
           npm run ts:check
+          npm run build
           npm test
 
   # Advisory only: publishes the size/bundle/bench/health/coverage numbers to the PR

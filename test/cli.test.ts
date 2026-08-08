@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
@@ -209,8 +209,13 @@ describe("import-vercel", () => {
 
 // Review finding: the bin's self-exec guard compared string suffixes, so when npm installs it as a
 // symlink in node_modules/.bin the published CLI ran nothing and exited 0.
-describe("the bin actually runs", () => {
-  const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "cli", "bin.js");
+const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "cli", "bin.js");
+const builtBinExists = existsSync(bin);
+if (!builtBinExists) {
+  console.warn(`SKIPPING the bin tests: ${bin} is not built. Run \`npm run build\` first.`);
+}
+
+describe.skipIf(!builtBinExists)("the bin actually runs", () => {
   const run = async (args: string[], cwd?: string) => {
     const { execFile } = await import("node:child_process");
     return new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
