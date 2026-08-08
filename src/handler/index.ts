@@ -14,6 +14,7 @@ export interface ChatStreamResult {
   toUIMessageStreamResponse(options: {
     generateMessageId?: () => string;
     onEnd?: (event: { responseMessage: UIMessage }) => void | PromiseLike<void>;
+    consumeSseStream?: (options: { stream: ReadableStream<string> }) => void | PromiseLike<void>;
   }): Response;
   consumeStream(options?: { onError?: (error: unknown) => void }): PromiseLike<void>;
 }
@@ -45,7 +46,22 @@ export interface ChatHandlerOptions {
   authorize?: (ctx: { thread: Thread; request: Request }) => boolean | Promise<boolean>;
   generateTitle?: (ctx: { firstUserMessage: UIMessage }) => string | Promise<string>;
   onError?: (error: unknown) => Response | undefined;
+  /**
+   * Awaited once the thread is resolved and before the reply streams. Returning
+   * `consumeSseStream` hands it a tee'd copy of the outgoing stream; `resumableChat` uses this
+   * seam to register the stream for resuming before the response can reach the client.
+   */
+  beforeStream?: BeforeStreamHook;
 }
+
+export interface BeforeStream {
+  consumeSseStream?: (stream: ReadableStream<string>) => void | Promise<void>;
+}
+
+export type BeforeStreamHook = (ctx: {
+  threadId: string;
+  request: Request;
+}) => BeforeStream | void | Promise<BeforeStream | void>;
 
 const FORBIDDEN = Symbol("forbidden");
 
@@ -101,12 +117,17 @@ export function chatHandler(options: ChatHandlerOptions) {
 
       const result = await options.execute({ threadId, uiMessages, modelMessages, request });
 
+      const hooks = (await options.beforeStream?.({ threadId, request })) ?? {};
+
       // `originalMessages` is deliberately omitted: when the list it receives ends with an
       // assistant message the SDK reuses that id and reseeds the reply from its parts, which
       // collides with the stored row and loses the answer. generateMessageId is what supplies
       // an id at all - without either, the reply arrives with id "".
       const response = result.toUIMessageStreamResponse({
         generateMessageId: generateId,
+        ...(hooks.consumeSseStream && {
+          consumeSseStream: ({ stream }) => hooks.consumeSseStream?.(stream),
+        }),
         onEnd: async ({ responseMessage }) => {
           // A disconnect leaves the reply empty or half-streamed. Storing it would render as
           // forever-in-progress and feed a half-sentence to the model next turn.

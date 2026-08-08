@@ -20,13 +20,17 @@
     "./handler": {
       "types": "./dist/handler/index.d.ts",
       "default": "./dist/handler/index.js"
+    },
+    "./resume": {
+      "types": "./dist/resume/index.d.ts",
+      "default": "./dist/resume/index.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsdown src/index.ts src/drizzle/index.ts src/handler/index.ts --format esm --dts --no-fixed-extension && publint && attw --pack . --profile esm-only",
+    "build": "tsdown src/index.ts src/drizzle/index.ts src/handler/index.ts src/resume/index.ts --format esm --dts --no-fixed-extension && publint && attw --pack . --profile esm-only",
     "test": "vitest run",
     "bench": "vitest bench --run",
     "ts:check": "tsc --noEmit && tsc --noEmit -p tsconfig.no-node.json",
@@ -78,5 +82,8 @@
     "chat-history",
     "uimessage",
     "drizzle"
-  ]
+  ],
+  "dependencies": {
+    "resumable-stream": "^2.2.12"
+  }
 }
