@@ -1,0 +1,10 @@
+[
+  {
+    "type": "step-start"
+  },
+  {
+    "type": "text",
+    "text": "Hello world",
+    "state": "done"
+  }
+]

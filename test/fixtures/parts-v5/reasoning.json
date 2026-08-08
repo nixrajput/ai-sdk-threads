@@ -1,0 +1,15 @@
+[
+  {
+    "type": "step-start"
+  },
+  {
+    "type": "reasoning",
+    "text": "thinking hard",
+    "state": "done"
+  },
+  {
+    "type": "text",
+    "text": "the answer",
+    "state": "done"
+  }
+]
