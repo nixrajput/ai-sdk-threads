@@ -55,20 +55,38 @@ jobs:
           fi
           gh release create "$TAG" --target "${{ github.sha }}" --title "$TAG" --generate-notes
           echo "Released $TAG"
-      - name: Publish packages to npm if new
+      - name: Publish to npm if new
         run: |
-          for dir in . aliases/ai-threads aliases/ai-sdk-persistence; do
+          name=$(jq -r .name package.json)
+          version=$(jq -r .version package.json)
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already on npm - skipping."
+            exit 0
+          fi
+          # A prerelease must not take the `latest` dist-tag, or every plain
+          # `npm i ai-sdk-threads` would resolve to it.
+          case "$version" in
+            *-*) npm publish --tag next; tag=next ;;
+            *)   npm publish;            tag=latest ;;
+          esac
+          echo "Published $name@$version (dist-tag: $tag)"
+
+      # The alias packages are name reservations, not the product. Their publish is deliberately
+      # non-fatal: each needs its own trusted publisher on npmjs.com, and a missing one must not
+      # fail a release whose real package already published.
+      - name: Publish alias packages if new (advisory)
+        continue-on-error: true
+        run: |
+          for dir in aliases/ai-threads aliases/ai-sdk-persistence; do
             name=$(jq -r .name "$dir/package.json")
             version=$(jq -r .version "$dir/package.json")
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "$name@$version already on npm - skipping."
               continue
             fi
-            # A prerelease must not take the `latest` dist-tag, or every plain
-            # `npm i ai-sdk-threads` would resolve to it.
-            case "$version" in
-              *-*) (cd "$dir" && npm publish --tag next); tag=next ;;
-              *)   (cd "$dir" && npm publish);            tag=latest ;;
-            esac
-            echo "Published $name@$version (dist-tag: $tag)"
+            if (cd "$dir" && npm publish); then
+              echo "Published $name@$version"
+            else
+              echo "::warning::Could not publish $name@$version - publish it manually if wanted."
+            fi
           done

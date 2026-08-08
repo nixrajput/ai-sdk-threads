@@ -1,7 +1,7 @@
 {
   "name": "ai-threads",
-  "version": "0.0.1",
-  "description": "Name reservation only - not maintained and contains no code. Install ai-sdk-threads instead.",
+  "version": "0.0.2",
+  "description": "Name reservation for ai-sdk-threads, which is the package you want. ai-threads contains no code.",
   "type": "module",
   "exports": {
     ".": {
