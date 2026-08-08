@@ -33,10 +33,8 @@ import { messages, threads } from "./schema.js";
 export { messages, threads } from "./schema.js";
 
 /**
- * A drizzle SQLite database on an **async** driver - libsql is what CI runs. Writes use interactive
- * transactions with an async callback: better-sqlite3 rejects that outright, Bun's driver does not
- * await it (losing atomicity silently), and D1 has no interactive transactions. The run-result type
- * is left `unknown` because it differs per driver and nothing here reads it.
+ * A drizzle SQLite database on an **async** driver - libsql is what CI runs. Writes use
+ * interactive transactions with an async callback: better-sqlite3 rejects that outright, Bun's.
  */
 export type SqliteThreadStoreDatabase = BaseSQLiteDatabase<"sync" | "async", unknown>;
 

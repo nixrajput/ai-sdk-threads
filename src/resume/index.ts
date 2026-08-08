@@ -14,8 +14,7 @@ export interface ResumableChatOptions extends Omit<ChatHandlerOptions, "store" |
   store: ThreadStore & StreamStateStore;
   /**
    * Where in-flight streams are kept. Defaults to one process-wide in-memory context, which
-   * resumes only within the instance that served the POST - pass a Redis-backed one for
-   * multi-instance deployments.
+   * resumes only within the instance that served the POST. Pass a Redis-backed context otherwise.
    */
   streamContext?: ResumableStreamContext;
   /** Defaults to a `?chatId=` parameter, else the `<threadId>/stream` path the SDK client uses. */
@@ -109,8 +108,8 @@ let sharedContext: ResumableStreamContext | undefined;
 const defaultContext = () => (sharedContext ??= createMemoryStreamContext());
 
 /**
- * `chatHandler` plus the endpoints a resumable client needs: POST registers the reply stream,
- * GET replays one that is still in flight, DELETE forgets it.
+ * `chatHandler` plus the endpoints a resumable client needs: POST registers the reply stream, GET
+ * replays one that is still in flight, DELETE forgets it.
  */
 export function resumableChat(options: ResumableChatOptions): {
   POST: Handler;

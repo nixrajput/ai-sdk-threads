@@ -44,16 +44,14 @@ export interface ChatHandlerOptions {
   }) => ChatThreadScope | Promise<ChatThreadScope>;
   /**
    * Guards an existing thread; return false to answer 403. Thread ids come from the client, so
-   * without this any caller can post into someone else's thread. `createThread` cannot cover
-   * it - that only fires for ids which do not exist yet.
+   * without this any caller can post into someone else's thread. `createThread` cannot cover it -.
    */
   authorize?: (ctx: { thread: Thread; request: Request }) => boolean | Promise<boolean>;
   generateTitle?: (ctx: { firstUserMessage: UIMessage }) => string | Promise<string>;
   onError?: (error: unknown) => Response | undefined;
   /**
-   * Awaited once the thread is resolved and before the reply streams. Returning
-   * `consumeSseStream` hands it a tee'd copy of the outgoing stream; `resumableChat` uses this
-   * seam to register the stream for resuming before the response can reach the client.
+   * Awaited once the thread is resolved and before the reply streams. Returning `consumeSseStream`
+   * hands it a tee'd copy of the outgoing stream. `resumableChat` registers its stream through this.
    */
   beforeStream?: BeforeStreamHook;
 }
@@ -114,13 +112,9 @@ export function chatHandler(options: ChatHandlerOptions) {
 
       const hooks = (await options.beforeStream?.({ threadId, request })) ?? {};
 
-      // `originalMessages` is deliberately omitted: when the list it receives ends with an
-      // assistant message the SDK reuses that id and reseeds the reply from its parts, which
-      // collides with the stored row and loses the answer. generateMessageId is what supplies
-      // an id at all - without either, the reply arrives with id "".
-      // Passed under both names because ai 6 calls `onFinish` and ai 7 calls `onEnd`; the guard
-      // means a version that somehow fires both still persists once. Without this the handler
-      // silently never stored a reply on ai 6, despite the peer range accepting it.
+      // `originalMessages` is omitted deliberately: given a list ending in an assistant message
+      // the SDK reuses that id, colliding with the stored row and losing the reply.
+      // Both callback names are passed - ai 6 fires onFinish, ai 7 onEnd - guarded to persist once.
       let persisted = false;
       const persistReply = async ({ responseMessage }: { responseMessage: UIMessage }) => {
         if (persisted) return;
@@ -214,10 +208,8 @@ export interface ResolvedTurn {
 }
 
 /**
- * Applies what this request means to the thread and returns the history to answer from. The
- * shapes the SDK client can send are told apart by `trigger` plus `messageId`: a regenerate names
- * the message to redo (or nothing, meaning the last answer), an edit reuses an existing id with
- * new parts, and anything else is a new turn. A retry - same id, same parts - must add nothing.
+ * Applies what this request means to the thread and returns the history to answer from. The shapes
+ * client's shapes are told apart by `trigger` plus `messageId`; a retry - same id, same parts - adds nothing.
  */
 async function resolveHistory(
   options: ChatHandlerOptions,

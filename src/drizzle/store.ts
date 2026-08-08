@@ -79,8 +79,8 @@ async function findMessage(db: ThreadStoreDatabase, threadId: string, messageId:
 }
 
 /**
- * Writes a chain of messages hanging off `parentId` and moves the thread's active leaf to the
- * last of them. Shared by appendMessages and forkAt, which differ only in where they attach.
+ * Writes a chain of messages hanging off `parentId` and moves the thread's active leaf to the last
+ * of them. Shared by appendMessages and forkAt, which differ only in where they attach.
  */
 async function writeChain(
   tx: ThreadStoreDatabase,

@@ -97,10 +97,8 @@ export async function run(argv: string[]): Promise<number> {
 }
 
 /**
- * npm installs the bin as a symlink in node_modules/.bin, and Node resolves the module through the
- * real path - so argv[1] is the link while import.meta.url is the target. Comparing them directly
- * (or by string suffix) never matches, which meant the published CLI silently did nothing and
- * exited 0. Both sides are resolved to a real path here.
+ * Both sides resolved to a real path: npm installs the bin as a symlink and Node loads the module
+ * through its target, so any direct comparison silently makes the whole CLI a no-op that exits 0.
  */
 function invokedDirectly(): boolean {
   const entry = process.argv[1];

@@ -58,44 +58,25 @@ export interface ThreadStore {
 }
 
 /**
- * Tree operations over the `parentId` links every message already carries. Kept out of
- * `ThreadStore` so a hand-written store is not forced to implement them; the drizzle store does.
+ * Tree operations, kept out of `ThreadStore` so a hand-written store need not implement them.
+ * Every method takes the thread as well as the message: ids are a global key, so an unscoped.
  */
 export interface BranchingStore {
-  /**
-   * Starts a new branch in place of `messageId`: the new messages chain from that message's
-   * PARENT, so `messageId` and everything after it on that path are left behind but not deleted.
-   */
   forkAt(threadId: string, messageId: string, messages: UIMessage[]): Promise<StoredMessage[]>;
-  /**
-   * Rewrites a message's content while keeping its id, and preserves the previous version as a
-   * sibling branch that keeps the old replies. The id survives so a client that edits the same
-   * message twice without reloading still names something that exists.
-   */
+  /** Rewrites a message in place, keeping its id; the previous version becomes a sibling. */
   replaceMessage(threadId: string, messageId: string, message: UIMessage): Promise<StoredMessage>;
-  /**
-   * Points the active leaf where a fresh answer to `messageId` belongs: at the message itself if
-   * it is a user turn, or at its parent if it is an assistant turn being redone.
-   */
+  /** Points the leaf where a fresh answer belongs: the message itself, or its parent if assistant. */
   regenerateFrom(threadId: string, messageId: string): Promise<{ leafId: string | null }>;
-  /**
-   * Every message sharing `messageId`'s parent, oldest first. Siblings created in the same
-   * millisecond fall back to id order.
-   */
+  /** Oldest first; siblings created in the same millisecond fall back to id order. */
   siblingsOf(
     threadId: string,
     messageId: string,
   ): Promise<{ siblings: StoredMessage[]; index: number }>;
-  /** Switches which path through the tree is live. Any message in the thread may be the leaf. */
   setActiveLeaf(threadId: string, messageId: string): Promise<void>;
-  /** Every message in the thread, flat; walk `parentId` to rebuild the shape. */
   getTree(threadId: string): Promise<StoredMessage[]>;
 }
 
-/**
- * Stream state, kept out of `ThreadStore` so a hand-written store is not forced to implement
- * what only `resumableChat` uses. The drizzle store provides both.
- */
+/** Stream state, kept out of `ThreadStore` because only `resumableChat` uses it. */
 export interface StreamStateStore {
   setActiveStream(threadId: string, streamId: string): Promise<void>;
   /** Clears only if `streamId` is still the active one, so a finishing stream cannot wipe a newer one. */

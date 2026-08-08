@@ -84,8 +84,7 @@ export interface MessageRowInput {
 
 /**
  * Turns validated messages into rows linked as one chain hanging off `parentId`, and reports the
- * id that becomes the thread's new leaf. Every id is known up front, so a caller can write them
- * in a single round-trip instead of one insert per message.
+ * id that becomes the thread's new leaf. Ids are known up front, so callers write one round-trip.
  */
 export function chainRows(
   threadId: string,

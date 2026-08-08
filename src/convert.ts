@@ -46,10 +46,8 @@ function applyOutput(part: OpenToolPart, output: ToolResultPart["output"]): void
 }
 
 /**
- * `ModelMessage[]` back to the `UIMessage[]` shape `useChat` renders - the direction the SDK
- * does not ship (vercel/ai#7180). Tool results fold into the assistant message that called them.
- * Unsupported content throws rather than being guessed at; the one lossy case is an `error-json`
- * output, which the UI shape can only hold as text.
+ * `ModelMessage[]` back to the `UIMessage[]` shape `useChat` renders - the direction the SDK does
+ * not ship (vercel/ai#7180). Tool results fold into the assistant message that called them.
  */
 export function convertToUIMessages(
   modelMessages: ModelMessage[],

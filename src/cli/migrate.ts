@@ -18,9 +18,7 @@ export interface MigrateReport {
 
 /**
  * Brings every row stamped with an older `ai` major up to the current one, verifying as it goes:
- * each row's parts are migrated, then checked against the SDK's own validator, so the run reports
- * what is actually readable rather than only what it rewrote. Nothing is written on a dry run, and
- * the whole pass is one transaction so a failure leaves the table as it was.
+ * each row's parts are migrated, then checked against the SDK's own validator, so the run reports.
  */
 export async function migrateDatabase(
   db: ThreadStoreDatabase,
