@@ -62,13 +62,13 @@ ai-sdk-threads is those two tables and a small typed store over them. Message `p
 
 - **One-line chat route** - `chatHandler` replaces the load/store/stream/store boilerplate every AI SDK app writes by hand.
 - **Postgres or SQLite** - the same `ThreadStore` contract over either, verified by one parity suite run against both.
-- **Branching** - edit or regenerate a message and the old version survives as a sibling, the way ChatGPT does it ([vercel/ai#2929][issue2929]).
+- **Branching** - edit or regenerate a message and the old version survives as a sibling, the way ChatGPT does it ([vercel/ai#2929][issue2929], open since 2024).
 - **Resumable streams** - `resumableChat` ships the POST/GET/DELETE trio, so a reload mid-answer picks the stream back up.
 - **`UIMessage`-native** - `parts` and `metadata` stored verbatim (`jsonb` on Postgres, text JSON on SQLite), never flattened to a content string.
 - **A drizzle/Postgres adapter** - works with node-postgres, postgres.js, Neon, Vercel Postgres, or PGlite.
 - **Your migrations** - the tables are exported as drizzle objects and land in your own schema and migration history.
 - **Keyset pagination** - `listThreads` pages by cursor, not `OFFSET`, so page 400 costs what page 1 does.
-- **`convertToUIMessages`** - the `ModelMessage` to `UIMessage` direction the SDK does not ship ([vercel/ai#7180][issue7180]).
+- **`convertToUIMessages`** - the `ModelMessage` to `UIMessage` direction the SDK still does not ship as of `ai` 7 ([vercel/ai#7180][issue7180], open).
 - **Zero runtime dependencies** - `ai`, `drizzle-orm` and `resumable-stream` are peers, the last two optional. Install only what you use.
 - **Edge-safe core** - no Node globals anywhere in `src/`, enforced by a second typecheck in CI.
 
@@ -416,7 +416,7 @@ A `Thread` is `{ id, userId, title, visibility, activeLeafId, metadata, createdA
 
 ### `convertToUIMessages(modelMessages, options?)`
 
-The AI SDK converts `UIMessage[]` to `ModelMessage[]`. It does not ship the reverse, which is what you need when the messages you have came from a provider, a log, or an older table ([vercel/ai#7180][issue7180]).
+The AI SDK converts `UIMessage[]` to `ModelMessage[]`. As of `ai` 7 it does not ship the reverse, which is what you need when the messages you have came from a provider, a log, or an older table ([vercel/ai#7180][issue7180], open at the time of writing - if the SDK ships it, prefer theirs).
 
 ```ts
 import { convertToUIMessages } from "ai-sdk-threads";
