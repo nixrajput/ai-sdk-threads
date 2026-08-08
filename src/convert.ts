@@ -2,17 +2,12 @@ import type { ModelMessage, ToolResultPart, UIMessage } from "ai";
 import { generateId } from "ai";
 
 export interface ConvertToUIMessagesOptions {
-  /** Defaults to the AI SDK's own `generateId`. */
   generateId?: () => string;
 }
 
 type UIPart = UIMessage["parts"][number];
 
-/**
- * A tool part while it is still open to a result. The SDK's own tool-part type is a
- * discriminated union per state, which cannot be narrowed in place - so the part is
- * built loosely here and widened to `UIPart` on the way into the message.
- */
+/** Built loosely because the SDK's tool-part union is per-state and cannot be narrowed in place. */
 interface OpenToolPart {
   type: `tool-${string}`;
   toolCallId: string;
@@ -28,10 +23,7 @@ const unsupported = (what: string) =>
       "Open an issue at https://github.com/nixrajput/ai-sdk-threads/issues if you need it.",
   );
 
-/**
- * Mirrors the SDK's own default output mapping in reverse: it wraps a UI part's raw
- * output as `{ type: "json" | "text", value }`, so unwrapping `value` is what round-trips.
- */
+/** Reverses the SDK's own mapping, which wraps raw output as `{ type: "json" | "text", value }`. */
 function applyOutput(part: OpenToolPart, output: ToolResultPart["output"]): void {
   switch (output.type) {
     case "text":
@@ -53,12 +45,9 @@ function applyOutput(part: OpenToolPart, output: ToolResultPart["output"]): void
 }
 
 /**
- * Converts `ModelMessage[]` back into the `UIMessage[]` shape `useChat` renders - the
- * direction the AI SDK does not ship (vercel/ai#7180). Tool results are folded into the
- * tool part of the assistant message that called them, never emitted as their own message.
- *
- * Unsupported content (file, image, and other provider-specific parts) throws rather than
- * being guessed at, so a silently lossy conversion cannot reach a database.
+ * `ModelMessage[]` back to the `UIMessage[]` shape `useChat` renders - the direction the SDK
+ * does not ship (vercel/ai#7180). Tool results fold into the assistant message that called
+ * them, and unsupported content throws so a lossy conversion cannot reach a database.
  */
 export function convertToUIMessages(
   modelMessages: ModelMessage[],
@@ -66,8 +55,7 @@ export function convertToUIMessages(
 ): UIMessage[] {
   const nextId = options?.generateId ?? generateId;
   const messages: UIMessage[] = [];
-  // Tool calls of the message being built, still awaiting a result. Values are the same
-  // objects already pushed into `parts`, so upgrading one in place updates the message.
+  // Values are the same objects already pushed into `parts`, so upgrading one updates the message.
   let openToolParts = new Map<string, OpenToolPart>();
 
   const resolve = (toolCallId: string, output: ToolResultPart["output"]): void => {

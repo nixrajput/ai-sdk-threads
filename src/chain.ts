@@ -1,9 +1,6 @@
 import type { StoredMessage } from "./types.js";
 
-/**
- * The active conversation of a thread: the path from its active leaf back to the
- * root, returned root-first. Rows form a tree, so siblings off the path are skipped.
- */
+/** The path from a thread's active leaf back to the root, root-first; siblings are skipped. */
 export function orderPath(rows: StoredMessage[], activeLeafId: string | null): StoredMessage[] {
   if (activeLeafId === null) return [];
   const byId = new Map(rows.map((r) => [r.id, r]));

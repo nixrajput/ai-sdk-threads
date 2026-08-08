@@ -1,8 +1,7 @@
 import { index, jsonb, pgTable, smallint, text, timestamp } from "drizzle-orm/pg-core";
 import { CURRENT_SDK_MAJOR } from "../types.js";
 
-// Table names are prefixed `ai_sdk_` because these land in the consumer's own
-// database, next to their application tables.
+// Prefixed `ai_sdk_`: these land in the consumer's own database beside their app tables.
 
 export const threads = pgTable(
   "ai_sdk_threads",
@@ -21,10 +20,7 @@ export const threads = pgTable(
   (t) => [index("ai_sdk_threads_user_idx").on(t.userId)],
 );
 
-/**
- * Messages form a tree: `parentId` links a message to the one it answers, and the
- * thread's `activeLeafId` selects which path through that tree is the live conversation.
- */
+/** A tree: `parentId` links to the answered message, `threads.activeLeafId` picks the live path. */
 export const messages = pgTable(
   "ai_sdk_messages",
   {

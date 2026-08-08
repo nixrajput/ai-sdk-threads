@@ -1,9 +1,6 @@
 import type { UIMessage } from "ai";
 
-/**
- * The `ai` major that wrote a message row. Stored per row so a future major can
- * migrate `parts` rather than guess which shape it is looking at.
- */
+/** Stamped on each row so a future SDK major can migrate stored parts rather than guess. */
 export const CURRENT_SDK_MAJOR = 7;
 
 export interface Thread {

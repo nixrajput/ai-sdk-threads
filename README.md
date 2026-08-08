@@ -185,30 +185,40 @@ export const POST = chatHandler({
 });
 ```
 
-| Option          | Required | What it does                                                                                        |
-| --------------- | -------- | --------------------------------------------------------------------------------------------------- |
-| `store`         | yes      | The `ThreadStore` to persist into.                                                                   |
-| `execute`       | yes      | Called with `{ threadId, uiMessages, modelMessages, request }`; return a `streamText` result.         |
-| `createThread`  | no       | Called when a request names a thread that does not exist yet. Return `{ userId?, metadata? }`.        |
-| `generateTitle` | no       | Called once per thread with `{ firstUserMessage }`. Runs detached - it never delays the response.     |
-| `onError`       | no       | Return a `Response` to replace the default 500, or `undefined` to keep it.                            |
+| Option          | Required | What it does                                                                                     |
+| --------------- | -------- | ------------------------------------------------------------------------------------------------ |
+| `store`         | yes      | The `ThreadStore` to persist into.                                                                |
+| `execute`       | yes      | Called with `{ threadId, uiMessages, modelMessages, request }`; return a `streamText` result.      |
+| `createThread`  | no       | Called when a request names a thread that does not exist yet. Return `{ userId?, metadata? }`.     |
+| `authorize`     | no       | Called with `{ thread, request }` for an **existing** thread. Return `false` to answer 403.       |
+| `generateTitle` | no       | Called once per thread with `{ firstUserMessage }`. Runs detached - it never delays the response.  |
+| `onError`       | no       | Return a `Response` to replace the default 500, or `undefined` to keep it.                        |
 
 What it does, in order:
 
 1. Parses the body, answering **400** on anything malformed.
-2. Loads the thread, creating it (scoped via `createThread`) if this is the first request to name it.
-3. Stores the incoming message **before** streaming, so a mid-stream crash cannot lose it.
-4. Calls `execute` with the thread's full validated history.
-5. Streams the reply and stores it on completion, with a server-generated message id.
-6. Keeps the stream running server-side so a slow client cannot leave the generation half-finished.
+2. Loads the thread - creating it (scoped via `createThread`) if this request is the first to name it, or running `authorize` if it already exists.
+3. Validates the messages this request adds, and rejects anything the SDK cannot parse with **400** rather than storing it.
+4. Stores the new message **before** streaming, so a mid-stream crash cannot lose it.
+5. Calls `execute` with the thread's full validated history.
+6. Streams the reply and stores it on completion, with a server-generated message id.
+7. Runs the model stream to completion server-side, so a slow or suspended client cannot leave the generation half-made.
 
-Scope threads to the signed-in user, and title them from the first message:
+### Securing a thread
+
+**Thread ids come from the client**, so `authorize` is what stops one user reading another's conversation. Without it, any caller who knows or guesses an id can post into that thread and get the model's answer with the whole history as context. `createThread` does not cover this - it only fires for ids that do not exist yet.
 
 ```ts
 export const POST = chatHandler({
   store,
   execute: ({ modelMessages }) => streamText({ model: openai("gpt-5"), messages: modelMessages }),
+
+  // New thread: record who owns it.
   createThread: async ({ request }) => ({ userId: await userIdFrom(request) }),
+
+  // Existing thread: prove the caller owns it, or 403.
+  authorize: async ({ thread, request }) => thread.userId === (await userIdFrom(request)),
+
   generateTitle: async ({ firstUserMessage }) => {
     const { text } = await generateText({
       model: openai("gpt-5-mini"),
@@ -219,9 +229,11 @@ export const POST = chatHandler({
 });
 ```
 
+Only new `user` messages are accepted. A request introducing a fresh `system` or `assistant` message is rejected with 400, so a client cannot forge context that every later turn on the thread would then inherit.
+
 Both wire shapes work unchanged. The default transport posts the whole conversation each turn; a custom `prepareSendMessagesRequest` that posts only `{ id, message }` works too. The handler stores only messages it has not already seen, so neither shape duplicates rows.
 
-**Errors and disconnects.** A throwing `execute` answers 500 (or whatever `onError` returns) and leaves the user's message stored with no half-written reply, so the client can retry. A client that disconnects mid-stream produces no reply content at all - the handler notices and writes nothing rather than storing an empty assistant message. If storing the reply fails, it is logged via `console.error` rather than thrown into stream teardown where nothing could act on it.
+**Errors and disconnects.** A throwing `execute` answers 500 (or whatever `onError` returns) and leaves the user's message stored with no half-written reply, so the client can retry. A client that disconnects mid-stream leaves the reply empty or truncated; the handler detects that and stores nothing rather than leaving a message that renders as forever-in-progress and feeds a half-sentence to the model on the next turn. If storing the reply fails, it is logged via `console.error` rather than thrown into stream teardown where nothing could act on it.
 
 #### Without the handler
 

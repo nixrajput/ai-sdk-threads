@@ -1,11 +1,9 @@
 import type { UIMessage } from "ai";
 
-// The wire shape, read off the installed ai 7.0.x HttpChatTransport. Its default body is
-// `{ ...body, id, messages, trigger, messageId }` with the FULL history; a custom
-// prepareSendMessagesRequest commonly sends `{ id, message }` with only the last one.
-// `trigger` is 'submit-message' | 'regenerate-message' here - the third value the
-// transport can produce, 'resume-stream', never reaches a POST body (it goes to the
-// GET reconnect route instead).
+// Read off the installed ai 7.0.x HttpChatTransport: its default body is `{ id, messages,
+// trigger, messageId }` carrying the FULL history, while a custom prepareSendMessagesRequest
+// commonly sends `{ id, message }`. The transport's third trigger, 'resume-stream', never
+// reaches a POST body - it goes to the GET reconnect route instead.
 
 export type ChatTrigger = "submit-message" | "regenerate-message";
 
@@ -13,11 +11,10 @@ export interface ParsedChatBody {
   threadId: string;
   incoming: UIMessage[];
   trigger: ChatTrigger;
-  /** Present for regenerate, and for an edit or retry of an existing message. */
   messageId?: string;
 }
 
-/** A malformed request body. Callers should answer 400. */
+/** Malformed request body; callers answer 400. */
 export class ChatBodyError extends Error {
   constructor(message: string) {
     super(`ai-sdk-threads: ${message}`);
@@ -30,10 +27,7 @@ const TRIGGERS: ChatTrigger[] = ["submit-message", "regenerate-message"];
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/**
- * Validates the request body's envelope only. The messages themselves are validated by
- * the SDK's `validateUIMessages` once loaded, so this checks shape and nothing more.
- */
+/** Envelope only; message contents are validated against the SDK's schema by the caller. */
 export function parseChatBody(body: unknown): ParsedChatBody {
   if (!isRecord(body)) {
     throw new ChatBodyError("request body must be a JSON object");
@@ -63,6 +57,20 @@ export function parseChatBody(body: unknown): ParsedChatBody {
 
   if (!incoming.every(isRecord)) {
     throw new ChatBodyError("every message must be an object");
+  }
+
+  // Rows are keyed by message id, so both of these would otherwise reach the database and
+  // come back as a primary-key violation - a 500 for what is a malformed request.
+  const ids = new Set<string>();
+  for (const message of incoming) {
+    const { id: messageId } = message;
+    if (typeof messageId !== "string" || messageId === "") {
+      throw new ChatBodyError('every message needs a non-empty string "id"');
+    }
+    if (ids.has(messageId)) {
+      throw new ChatBodyError(`duplicate message id "${messageId}" in one request`);
+    }
+    ids.add(messageId);
   }
 
   if (trigger !== undefined && !TRIGGERS.includes(trigger as ChatTrigger)) {

@@ -15,7 +15,7 @@ import type {
 import { CURRENT_SDK_MAJOR } from "../types.js";
 import { messages, threads } from "./schema.js";
 
-/** Any drizzle Postgres database - node-postgres, postgres.js, Neon, PGlite. */
+/** Any drizzle Postgres database: node-postgres, postgres.js, Neon, PGlite. */
 export type ThreadStoreDatabase = PgDatabase<PgQueryResultHKT>;
 
 const DEFAULT_LIMIT = 20;
@@ -113,10 +113,9 @@ export function createThreadStore(db: ThreadStoreDatabase): ThreadStore {
 
     async appendMessages(threadId: string, input: UIMessage[]): Promise<StoredMessage[]> {
       if (input.length === 0) return [];
+      // Rows are keyed by message id, and the SDK leaves a reply's id empty unless the route
+      // passes generateMessageId - storing "" would collide on the next reply.
       for (const message of input) {
-        // Rows are keyed by message id. The SDK leaves an assistant reply's id empty
-        // unless the route passes generateMessageId, and storing "" would collide on
-        // the next reply - so refuse here rather than write an unusable row.
         if (!message.id) {
           throw new Error(
             'ai-sdk-threads: message is missing an "id". If this is an assistant reply from ' +
@@ -173,8 +172,7 @@ export function createThreadStore(db: ThreadStoreDatabase): ThreadStore {
 
       const rows = await db.select().from(messages).where(eq(messages.threadId, threadId));
       const path = orderPath(rows.map(toStoredMessage), thread.activeLeafId);
-      // validateUIMessages rejects an empty array, and a thread with no messages yet is
-      // the normal state of a freshly created thread - not something to throw over.
+      // validateUIMessages rejects an empty array, which is the normal state of a new thread.
       if (path.length === 0) return [];
 
       return validateUIMessages({

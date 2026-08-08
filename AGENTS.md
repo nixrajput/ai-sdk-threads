@@ -28,9 +28,15 @@ src/
   drizzle/schema.ts ai_sdk_threads + ai_sdk_messages tables, exported for user schemas
   drizzle/store.ts  createThreadStore(db)
   drizzle/index.ts  the ./drizzle subpath barrel
+  handler/body.ts   parseChatBody() + ChatBodyError - the request envelope
+  handler/index.ts  chatHandler() - the ./handler subpath barrel
 test/
   db.ts             makeDb() - a fresh PGlite + drizzle database per test
 ```
+
+Three build entry points, one per public subpath: `.`, `./drizzle`, `./handler`. Adding a subpath means adding it to `exports` **and** to the tsdown entry list in the `build` script.
+
+`handler/index.ts` is where every AI SDK streaming touchpoint lives, deliberately: an SDK major that renames `toUIMessageStreamResponse`, `onEnd`, `generateMessageId`, or `consumeStream` is a change in that one file. Two behaviours there were established by measurement, not documentation, and both have a regression test - do not "simplify" either away. `originalMessages` is never passed (given a history ending in an assistant message the SDK reuses that id and loses the new reply), and a reply is only stored once no part is still in a streaming state (a disconnect otherwise persists a half-sentence).
 
 ### The data model
 
