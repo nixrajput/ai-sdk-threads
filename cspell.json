@@ -20,7 +20,9 @@
     "scorecard",
     "sarif",
     "smallint",
+    "timestamptz",
     "tsdown",
+    "typechecks",
     "uimessage",
     "vitest"
   ],
