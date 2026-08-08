@@ -60,6 +60,29 @@ jobs:
             fi
           done
 
+  # peerDependencies accept `ai >=6 <8`, so the older major has to be exercised or that range is
+  # a guess. This caught the handler passing only ai 7's `onEnd`, which meant no reply was ever
+  # persisted on ai 6. Skips `build`: tsdown needs a newer Node than this job pins for install speed.
+  build-ai-6:
+    name: build (ai@6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Downgrade the AI SDK to the peer floor
+        run: npm install --no-save ai@6
+      - name: Lint, typecheck, test
+        run: |
+          node -e "console.log('ai', require('ai/package.json').version)"
+          npm run lint
+          npm run ts:check
+          npm test
+
   # Advisory only: publishes the size/bundle/bench/health/coverage numbers to the PR
   # summary. Never gates - do not add this to the required checks.
   report:

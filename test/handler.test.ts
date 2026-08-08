@@ -1,46 +1,17 @@
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
-import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createThreadStore } from "../src/drizzle/index.js";
 import { ChatBodyError, parseChatBody } from "../src/handler/body.js";
 import { chatHandler } from "../src/handler/index.js";
 import { makeDb } from "./db.js";
+import { textModel } from "./model.js";
 
 const userMsg = (id: string, text: string) => ({
   id,
   role: "user",
   parts: [{ type: "text", text }],
 });
-
-/**
- * A model that streams the given text deltas and stops. The stream is built by hand rather
- * than with simulateReadableStream so the SDK's own doStream signature types each chunk.
- */
-const textModel = (deltas: string[]) =>
-  new MockLanguageModelV4({
-    doStream: async () => ({
-      stream: new ReadableStream({
-        start(controller) {
-          controller.enqueue({ type: "stream-start", warnings: [] });
-          controller.enqueue({ type: "text-start", id: "0" });
-          for (const delta of deltas) {
-            controller.enqueue({ type: "text-delta", id: "0", delta });
-          }
-          controller.enqueue({ type: "text-end", id: "0" });
-          controller.enqueue({
-            type: "finish",
-            finishReason: { unified: "stop", raw: "stop" },
-            usage: {
-              inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-              outputTokens: { total: 2, text: 2, reasoning: 0 },
-            },
-          });
-          controller.close();
-        },
-      }),
-    }),
-  });
 
 const post = (body: unknown) =>
   new Request("https://example.test/api/chat", {

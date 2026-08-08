@@ -1,9 +1,9 @@
 import { streamText } from "ai";
-import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createThreadStore } from "../src/drizzle/index.js";
 import { createMemoryStreamContext, resumableChat } from "../src/resume/index.js";
 import { makeDb } from "./db.js";
+import { textModel } from "./model.js";
 
 let ctx: Awaited<ReturnType<typeof makeDb>>;
 let store: ReturnType<typeof createThreadStore>;
@@ -19,33 +19,6 @@ const userMsg = (id: string, text: string) => ({
   role: "user",
   parts: [{ type: "text", text }],
 });
-
-/** Streams deltas with a gap between each, so a test can act mid-stream. */
-const slowModel = (deltas: string[], gapMs: number) =>
-  new MockLanguageModelV4({
-    doStream: async () => ({
-      stream: new ReadableStream({
-        async start(controller) {
-          controller.enqueue({ type: "stream-start", warnings: [] });
-          controller.enqueue({ type: "text-start", id: "0" });
-          for (const delta of deltas) {
-            await new Promise((r) => setTimeout(r, gapMs));
-            controller.enqueue({ type: "text-delta", id: "0", delta });
-          }
-          controller.enqueue({ type: "text-end", id: "0" });
-          controller.enqueue({
-            type: "finish",
-            finishReason: { unified: "stop", raw: "stop" },
-            usage: {
-              inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-              outputTokens: { total: 2, text: 2, reasoning: 0 },
-            },
-          });
-          controller.close();
-        },
-      }),
-    }),
-  });
 
 const post = (body: unknown) =>
   new Request("https://example.test/api/chat", {
@@ -72,7 +45,7 @@ const chat = (deltas = ["Hi ", "there"], gapMs = 0) =>
   resumableChat({
     store,
     execute: ({ modelMessages }) =>
-      streamText({ model: slowModel(deltas, gapMs), messages: modelMessages }),
+      streamText({ model: textModel(deltas, gapMs), messages: modelMessages }),
   });
 
 describe("resumableChat POST", () => {
@@ -188,7 +161,7 @@ describe("resumableChat authorization", () => {
       store,
       authorize: () => false,
       execute: ({ modelMessages }) =>
-        streamText({ model: slowModel(["one ", "two ", "three "], 40), messages: modelMessages }),
+        streamText({ model: textModel(["one ", "two ", "three "], 40), messages: modelMessages }),
     });
 
   test("GET does not hand an unauthorized caller the stream", async () => {
@@ -286,7 +259,7 @@ describe("resumableChat stream-context failures", () => {
       store,
       streamContext: broken,
       execute: ({ modelMessages }) =>
-        streamText({ model: slowModel(["one ", "two "], 10), messages: modelMessages }),
+        streamText({ model: textModel(["one ", "two "], 10), messages: modelMessages }),
     });
 
     const response = await POST(post({ id: "t1", messages: [userMsg("m1", "hello")] }));

@@ -15,6 +15,8 @@ export interface ChatStreamResult {
   toUIMessageStreamResponse(options: {
     generateMessageId?: () => string;
     onEnd?: (event: { responseMessage: UIMessage }) => void | PromiseLike<void>;
+    /** ai 6's name for onEnd, which ai 7 deprecated. Both are passed; only one ever fires. */
+    onFinish?: (event: { responseMessage: UIMessage }) => void | PromiseLike<void>;
     consumeSseStream?: (options: { stream: ReadableStream<string> }) => void | PromiseLike<void>;
   }): Response;
   consumeStream(options?: { onError?: (error: unknown) => void }): PromiseLike<void>;
@@ -116,28 +118,37 @@ export function chatHandler(options: ChatHandlerOptions) {
       // assistant message the SDK reuses that id and reseeds the reply from its parts, which
       // collides with the stored row and loses the answer. generateMessageId is what supplies
       // an id at all - without either, the reply arrives with id "".
+      // Passed under both names because ai 6 calls `onFinish` and ai 7 calls `onEnd`; the guard
+      // means a version that somehow fires both still persists once. Without this the handler
+      // silently never stored a reply on ai 6, despite the peer range accepting it.
+      let persisted = false;
+      const persistReply = async ({ responseMessage }: { responseMessage: UIMessage }) => {
+        if (persisted) return;
+        persisted = true;
+        // A disconnect leaves the reply empty or half-streamed. Storing it would render as
+        // forever-in-progress and feed a half-sentence to the model next turn.
+        if (!isComplete(responseMessage)) {
+          console.warn(
+            "ai-sdk-threads: the reply did not finish streaming; not storing it",
+            `(thread ${threadId})`,
+          );
+          return;
+        }
+        try {
+          await store.appendMessages(threadId, [responseMessage]);
+        } catch (error) {
+          // Throwing here lands in stream teardown, where nothing can act on it.
+          console.error("ai-sdk-threads: failed to persist the assistant message", error);
+        }
+      };
+
       const response = result.toUIMessageStreamResponse({
         generateMessageId: generateId,
         ...(hooks.consumeSseStream && {
           consumeSseStream: ({ stream }) => hooks.consumeSseStream?.(stream),
         }),
-        onEnd: async ({ responseMessage }) => {
-          // A disconnect leaves the reply empty or half-streamed. Storing it would render as
-          // forever-in-progress and feed a half-sentence to the model next turn.
-          if (!isComplete(responseMessage)) {
-            console.warn(
-              "ai-sdk-threads: the reply did not finish streaming; not storing it",
-              `(thread ${threadId})`,
-            );
-            return;
-          }
-          try {
-            await store.appendMessages(threadId, [responseMessage]);
-          } catch (error) {
-            // Throwing here lands in stream teardown, where nothing can act on it.
-            console.error("ai-sdk-threads: failed to persist the assistant message", error);
-          }
-        },
+        onEnd: persistReply,
+        onFinish: persistReply,
       });
 
       // Runs the stream to completion server-side even if the client stalls. Needs its own
