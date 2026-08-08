@@ -21,6 +21,7 @@
     "sarif",
     "smallint",
     "tsdown",
+    "uimessage",
     "vitest"
   ],
   "ignorePaths": ["node_modules/**", "dist/**", "coverage/**", "package-lock.json"]

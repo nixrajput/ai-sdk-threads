@@ -1,4 +1,6 @@
 export { orderPath } from "./chain.js";
+export type { ConvertToUIMessagesOptions } from "./convert.js";
+export { convertToUIMessages } from "./convert.js";
 export type {
   CreateThreadInput,
   ListThreadsQuery,

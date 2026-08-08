@@ -1,7 +1,7 @@
 {
   "name": "ai-sdk-threads",
   "version": "0.0.1",
-  "description": "Chat thread and message persistence for the Vercel AI SDK",
+  "description": "Chat thread and message persistence for the Vercel AI SDK - UIMessage-native schema, Drizzle/Postgres adapter. Your database, your data.",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -71,6 +71,8 @@
     "chat",
     "persistence",
     "threads",
-    "chat-history"
+    "chat-history",
+    "uimessage",
+    "drizzle"
   ]
 }
