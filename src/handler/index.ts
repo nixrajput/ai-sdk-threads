@@ -255,6 +255,13 @@ async function resolveHistory(
   }
 
   let replaced: string | undefined;
+  // The STORED role decides, never the submitted one: a client that labels its payload "user" while
+  // aiming messageId at an assistant row would otherwise have its own words persisted as the
+  // model's, and replayed to the model on every later turn.
+  if (edited && stored && stored.role !== "user") {
+    throw new ChatBodyError(`message "${messageId}" is not a user message and cannot be edited`);
+  }
+
   if (edited && stored && !sameParts(edited, stored) && store.replaceMessage) {
     const [replacement] = await acceptable([edited]);
     if (replacement) {

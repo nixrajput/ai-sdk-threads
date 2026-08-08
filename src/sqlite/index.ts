@@ -256,6 +256,13 @@ export function createThreadStore(
           .where(and(eq(messages.id, messageId), eq(messages.threadId, threadId)))
           .limit(1);
         if (!current) throw messageNotFound(threadId, messageId);
+        // A replacement may not change a row's role, so a caller cannot rewrite an assistant or
+        // system turn by submitting it as a user message.
+        if (current.role !== validated.role) {
+          throw new Error(
+            `ai-sdk-threads: cannot replace a "${current.role}" message with a "${validated.role}" one`,
+          );
+        }
 
         const archiveId = generateId();
         await tx.insert(messages).values({ ...current, id: archiveId });

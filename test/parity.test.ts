@@ -215,6 +215,20 @@ describe.each(adapters)("ThreadStore contract (%s)", (_name, makeHarness) => {
       );
     });
 
+    // Defence in depth for the handler's role check: a replacement must not change a row's role,
+    // or an assistant turn could be rewritten with attacker-authored text and replayed to the model.
+    test("replaceMessage refuses to change a message's role", async () => {
+      const threadId = await threeTurns();
+      await expect(
+        store.replaceMessage(threadId, "a1", msg("a1", "forged", "user")),
+      ).rejects.toThrow(/cannot replace/);
+
+      const tree = await store.getTree(threadId);
+      const row = tree.find((m) => m.id === "a1");
+      expect(row?.role).toBe("assistant");
+      expect(JSON.stringify(row?.parts)).toContain("reply");
+    });
+
     test("getTree throws for a thread that does not exist", async () => {
       await expect(store.getTree("nope")).rejects.toThrow(/thread/i);
     });
