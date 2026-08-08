@@ -18,9 +18,21 @@ import { messages, threads } from "./schema.js";
 /** Any drizzle Postgres database: node-postgres, postgres.js, Neon, PGlite. */
 export type ThreadStoreDatabase = PgDatabase<PgQueryResultHKT>;
 
+export interface ThreadStoreOptions {
+  /**
+   * Stamped on written rows. Defaults to 7; set it to 6 when running on `ai` 6.x, or a future
+   * migration will read the stamp and apply the wrong transform to these parts.
+   */
+  sdkVersion?: number;
+}
+
 const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
 
 const asMetadata = (value: unknown) => value as Record<string, unknown> | null;
+
+const isPlainObject = (value: unknown) =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const toThread = (row: typeof threads.$inferSelect): Thread => ({
   ...row,
@@ -35,8 +47,15 @@ const toStoredMessage = (row: typeof messages.$inferSelect): StoredMessage => ({
 
 const notFound = (id: string) => new Error(`ai-sdk-threads: thread "${id}" not found`);
 
-// Keyset cursor over (created_at, id). Deliberately not base64: encoding it would need
-// either a Node global or the DOM lib, and src/ must typecheck without both.
+/** A caller-supplied limit reaches SQL, so 0, a fraction, and a huge value all need bounding. */
+function pageLimit(requested: number | undefined): number {
+  if (requested === undefined || !Number.isFinite(requested)) return DEFAULT_LIMIT;
+  return Math.min(Math.max(Math.trunc(requested), 1), MAX_LIMIT);
+}
+
+// Keyset cursor over (created_at, id). Deliberately not base64: encoding it would need either a
+// Node global or the DOM lib, and src/ must typecheck without both. Lossless only because the
+// columns are declared at millisecond precision - see the note in schema.ts.
 const encodeCursor = (thread: Thread) => `${thread.createdAt.toISOString()}|${thread.id}`;
 
 function decodeCursor(cursor: string): { createdAt: Date; id: string } {
@@ -48,7 +67,33 @@ function decodeCursor(cursor: string): { createdAt: Date; id: string } {
   return { createdAt, id: cursor.slice(separator + 1) };
 }
 
-export function createThreadStore(db: ThreadStoreDatabase): ThreadStore {
+/**
+ * Validated on the way IN, not only on the way out: an unparseable row would fail every future
+ * load of the thread, so one bad append would make the conversation permanently unreadable.
+ */
+async function forStorage(input: UIMessage[]): Promise<UIMessage[]> {
+  for (const message of input) {
+    if (!message.id) {
+      throw new Error(
+        'ai-sdk-threads: message is missing an "id". If this is an assistant reply from ' +
+          "toUIMessageStreamResponse, pass generateMessageId so the SDK assigns one.",
+      );
+    }
+    // jsonb would happily store a bare string or number here, which every reader then gets back
+    // typed as an object.
+    if (message.metadata != null && !isPlainObject(message.metadata)) {
+      throw new Error(`ai-sdk-threads: metadata on message "${message.id}" must be an object`);
+    }
+  }
+  return validateUIMessages({ messages: input });
+}
+
+export function createThreadStore(
+  db: ThreadStoreDatabase,
+  options: ThreadStoreOptions = {},
+): ThreadStore {
+  const sdkVersion = options.sdkVersion ?? CURRENT_SDK_MAJOR;
+
   return {
     async createThread(input: CreateThreadInput = {}): Promise<Thread> {
       const [row] = await db
@@ -69,7 +114,7 @@ export function createThreadStore(db: ThreadStoreDatabase): ThreadStore {
     },
 
     async listThreads(query: ListThreadsQuery = {}): Promise<ListThreadsResult> {
-      const limit = query.limit ?? DEFAULT_LIMIT;
+      const limit = pageLimit(query.limit);
       const cursor = query.cursor === undefined ? undefined : decodeCursor(query.cursor);
       const filters = [
         query.userId === undefined ? undefined : eq(threads.userId, query.userId),
@@ -113,19 +158,11 @@ export function createThreadStore(db: ThreadStoreDatabase): ThreadStore {
 
     async appendMessages(threadId: string, input: UIMessage[]): Promise<StoredMessage[]> {
       if (input.length === 0) return [];
-      // Rows are keyed by message id, and the SDK leaves a reply's id empty unless the route
-      // passes generateMessageId - storing "" would collide on the next reply.
-      for (const message of input) {
-        if (!message.id) {
-          throw new Error(
-            'ai-sdk-threads: message is missing an "id". If this is an assistant reply from ' +
-              "toUIMessageStreamResponse, pass generateMessageId so the SDK assigns one.",
-          );
-        }
-      }
+      const validated = await forStorage(input);
+
       return db.transaction(async (tx) => {
-        // FOR UPDATE: two concurrent appends that both read the same leaf would each
-        // chain to it and silently fork the thread into two branches.
+        // FOR UPDATE: two concurrent appends that both read the same leaf would each chain to
+        // it and silently fork the thread into two branches.
         const [thread] = await tx
           .select({ activeLeafId: threads.activeLeafId })
           .from(threads)
@@ -134,31 +171,38 @@ export function createThreadStore(db: ThreadStoreDatabase): ThreadStore {
           .for("update");
         if (!thread) throw notFound(threadId);
 
+        // Every id is known up front, so the parent chain is computed here and written in one
+        // round-trip rather than holding the lock across one INSERT per message.
         let parentId = thread.activeLeafId;
-        const stored: StoredMessage[] = [];
-        for (const message of input) {
-          const [row] = await tx
-            .insert(messages)
-            .values({
-              id: message.id,
-              threadId,
-              parentId,
-              role: message.role,
-              parts: message.parts,
-              metadata: asMetadata(message.metadata ?? null),
-              sdkVersion: CURRENT_SDK_MAJOR,
-            })
-            .returning();
-          stored.push(toStoredMessage(row));
-          parentId = row.id;
-        }
+        const rows = validated.map((message) => {
+          const row = {
+            id: message.id,
+            threadId,
+            parentId,
+            role: message.role,
+            parts: message.parts,
+            metadata: asMetadata(message.metadata ?? null),
+            sdkVersion,
+          };
+          parentId = message.id;
+          return row;
+        });
 
+        const returned = await tx.insert(messages).values(rows).returning();
         await tx
           .update(threads)
           .set({ activeLeafId: parentId, updatedAt: new Date() })
           .where(eq(threads.id, threadId));
 
-        return stored;
+        // Keyed by id rather than trusting RETURNING's order, which SQL does not guarantee.
+        const byId = new Map(returned.map((row) => [row.id, row]));
+        return rows.map((row) => {
+          const persisted = byId.get(row.id);
+          if (!persisted) {
+            throw new Error(`ai-sdk-threads: insert did not return message "${row.id}"`);
+          }
+          return toStoredMessage(persisted);
+        });
       });
     },
 

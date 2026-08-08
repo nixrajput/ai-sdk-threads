@@ -31,6 +31,7 @@ Chat thread and message persistence for the **Vercel AI SDK** - `UIMessage` part
     - [Quickstart](#quickstart)
   - [API](#api)
     - [`chatHandler(options)`](#chathandleroptions)
+    - [Securing a thread](#securing-a-thread)
       - [Without the handler](#without-the-handler)
     - [`createThreadStore(db)`](#createthreadstoredb)
     - [Threads](#threads)
@@ -120,7 +121,8 @@ import { store } from "@/lib/threads";
 
 export const POST = chatHandler({
   store,
-  execute: ({ modelMessages }) => streamText({ model: openai("gpt-5"), messages: modelMessages }),
+  execute: ({ modelMessages }) =>
+    streamText({ model: openai("gpt-5"), messages: modelMessages }),
 });
 ```
 
@@ -181,17 +183,18 @@ import { chatHandler } from "ai-sdk-threads/handler";
 
 export const POST = chatHandler({
   store,
-  execute: ({ modelMessages }) => streamText({ model: openai("gpt-5"), messages: modelMessages }),
+  execute: ({ modelMessages }) =>
+    streamText({ model: openai("gpt-5"), messages: modelMessages }),
 });
 ```
 
-| Option          | Required | What it does                                                                                     |
-| --------------- | -------- | ------------------------------------------------------------------------------------------------ |
+| Option          | Required | What it does                                                                                      |
+| --------------- | -------- | ------------------------------------------------------------------------------------------------- |
 | `store`         | yes      | The `ThreadStore` to persist into.                                                                |
-| `execute`       | yes      | Called with `{ threadId, uiMessages, modelMessages, request }`; return a `streamText` result.      |
-| `createThread`  | no       | Called when a request names a thread that does not exist yet. Return `{ userId?, metadata? }`.     |
+| `execute`       | yes      | Called with `{ threadId, uiMessages, modelMessages, request }`; return a `streamText` result.     |
+| `createThread`  | no       | Called when a request names a thread that does not exist yet. Return `{ userId?, metadata? }`.    |
 | `authorize`     | no       | Called with `{ thread, request }` for an **existing** thread. Return `false` to answer 403.       |
-| `generateTitle` | no       | Called once per thread with `{ firstUserMessage }`. Runs detached - it never delays the response.  |
+| `generateTitle` | no       | Called once per thread with `{ firstUserMessage }`. Runs detached - it never delays the response. |
 | `onError`       | no       | Return a `Response` to replace the default 500, or `undefined` to keep it.                        |
 
 What it does, in order:
@@ -211,13 +214,15 @@ What it does, in order:
 ```ts
 export const POST = chatHandler({
   store,
-  execute: ({ modelMessages }) => streamText({ model: openai("gpt-5"), messages: modelMessages }),
+  execute: ({ modelMessages }) =>
+    streamText({ model: openai("gpt-5"), messages: modelMessages }),
 
   // New thread: record who owns it.
   createThread: async ({ request }) => ({ userId: await userIdFrom(request) }),
 
   // Existing thread: prove the caller owns it, or 403.
-  authorize: async ({ thread, request }) => thread.userId === (await userIdFrom(request)),
+  authorize: async ({ thread, request }) =>
+    thread.userId === (await userIdFrom(request)),
 
   generateTitle: async ({ firstUserMessage }) => {
     const { text } = await generateText({
@@ -237,7 +242,7 @@ Both wire shapes work unchanged. The default transport posts the whole conversat
 
 #### Without the handler
 
-The store is perfectly usable on its own if you want to own the route. Two things matter: store the user message *before* streaming, and pass `generateMessageId` - rows are keyed by message id, and the SDK leaves an assistant reply's id empty on a normal user turn.
+The store is perfectly usable on its own if you want to own the route. Two things matter: store the user message _before_ streaming, and pass `generateMessageId` - rows are keyed by message id, and the SDK leaves an assistant reply's id empty on a normal user turn.
 
 ```ts
 // app/api/chat/route.ts
@@ -274,6 +279,12 @@ Returns a `ThreadStore` backed by the two tables. `db` is any drizzle Postgres d
 import { createThreadStore } from "ai-sdk-threads/drizzle";
 
 const store = createThreadStore(db);
+```
+
+If you are on `ai` 6.x, pass the major you are writing so a future migration reads the right stamp:
+
+```ts
+const store = createThreadStore(db, { sdkVersion: 6 });
 ```
 
 ### Threads
@@ -362,27 +373,29 @@ Walks `parentId` links from a leaf back to the root and returns the rows oldest 
 import { messages, threads } from "ai-sdk-threads/drizzle";
 ```
 
-| `ai_sdk_threads` | Type          | Notes                                         |
-| ---------------- | ------------- | --------------------------------------------- |
-| `id`             | `text` PK     |                                               |
-| `user_id`        | `text`        | Indexed. Nullable for anonymous chats.        |
-| `title`          | `text`        |                                               |
-| `visibility`     | `text`        | `'private'` (default) or `'public'`.          |
-| `active_leaf_id` | `text`        | The last message on the live path.            |
-| `metadata`       | `jsonb`       | Yours to use.                                 |
-| `created_at`     | `timestamptz` |                                               |
-| `updated_at`     | `timestamptz` | Moved by `appendMessages` and `updateThread`. |
+| `ai_sdk_threads` | Type             | Notes                                         |
+| ---------------- | ---------------- | --------------------------------------------- |
+| `id`             | `text` PK        |                                               |
+| `user_id`        | `text`           | Indexed. Nullable for anonymous chats.        |
+| `title`          | `text`           |                                               |
+| `visibility`     | `text`           | `'private'` (default) or `'public'`.          |
+| `active_leaf_id` | `text`           | The last message on the live path.            |
+| `metadata`       | `jsonb`          | Yours to use.                                 |
+| `created_at`     | `timestamptz(3)` | Millisecond precision on purpose - see below. |
+| `updated_at`     | `timestamptz(3)` | Moved by `appendMessages` and `updateThread`. |
 
-| `ai_sdk_messages` | Type          | Notes                                   |
-| ----------------- | ------------- | --------------------------------------- |
-| `id`              | `text` PK     | The `UIMessage` id.                     |
-| `thread_id`       | `text`        | Indexed, `ON DELETE CASCADE`.           |
-| `parent_id`       | `text`        | The message this one answers.           |
-| `role`            | `text`        | `'system'`, `'user'`, or `'assistant'`. |
-| `parts`           | `jsonb`       | `UIMessage.parts`, verbatim.            |
-| `metadata`        | `jsonb`       | `UIMessage.metadata`, verbatim.         |
-| `sdk_version`     | `smallint`    | The `ai` major that wrote the row.      |
-| `created_at`      | `timestamptz` |                                         |
+| `ai_sdk_messages` | Type             | Notes                                   |
+| ----------------- | ---------------- | --------------------------------------- |
+| `id`              | `text` PK        | The `UIMessage` id.                     |
+| `thread_id`       | `text`           | Indexed, `ON DELETE CASCADE`.           |
+| `parent_id`       | `text`           | The message this one answers.           |
+| `role`            | `text`           | `'system'`, `'user'`, or `'assistant'`. |
+| `parts`           | `jsonb`          | `UIMessage.parts`, verbatim.            |
+| `metadata`        | `jsonb`          | `UIMessage.metadata`, verbatim.         |
+| `sdk_version`     | `smallint`       | The `ai` major that wrote the row.      |
+| `created_at`      | `timestamptz(3)` |                                         |
+
+The timestamp columns are **millisecond** precision, not Postgres' microsecond default. `listThreads`' cursor carries `created_at` through a JavaScript `Date`, which cannot represent microseconds; at the default precision the cursor rounds down and the following page silently skips every row sharing that millisecond. Keep the precision if you hand-write the migration.
 
 ## How messages are stored
 

@@ -3,6 +3,11 @@ import { CURRENT_SDK_MAJOR } from "../types.js";
 
 // Prefixed `ai_sdk_`: these land in the consumer's own database beside their app tables.
 
+// Millisecond precision, deliberately: listThreads' keyset cursor carries created_at through a
+// JS Date, which cannot hold Postgres' default microseconds. At the default precision the
+// cursor rounds down and the page after it silently skips every row sharing that millisecond.
+const TIMESTAMP_PRECISION = 3;
+
 export const threads = pgTable(
   "ai_sdk_threads",
   {
@@ -14,10 +19,17 @@ export const threads = pgTable(
       .default("private"),
     activeLeafId: text("active_leaf_id"),
     metadata: jsonb("metadata"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: TIMESTAMP_PRECISION })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, precision: TIMESTAMP_PRECISION })
+      .notNull()
+      .defaultNow(),
   },
-  (t) => [index("ai_sdk_threads_user_idx").on(t.userId)],
+  // Ordered to match listThreads' keyset page exactly, so the ORDER BY is served by the index
+  // instead of sorting the user's whole thread set per page. Postgres scans it backwards for
+  // the DESC direction, so no descending index is needed. It also serves plain user_id lookups.
+  (t) => [index("ai_sdk_threads_user_created_idx").on(t.userId, t.createdAt, t.id)],
 );
 
 /** A tree: `parentId` links to the answered message, `threads.activeLeafId` picks the live path. */
@@ -33,7 +45,9 @@ export const messages = pgTable(
     parts: jsonb("parts").notNull(),
     metadata: jsonb("metadata"),
     sdkVersion: smallint("sdk_version").notNull().default(CURRENT_SDK_MAJOR),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: TIMESTAMP_PRECISION })
+      .notNull()
+      .defaultNow(),
   },
   (t) => [index("ai_sdk_messages_thread_idx").on(t.threadId)],
 );
