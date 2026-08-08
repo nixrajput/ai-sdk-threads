@@ -33,7 +33,6 @@ Chat thread and message persistence for the **Vercel AI SDK** - `UIMessage` part
     - [`chatHandler(options)`](#chathandleroptions)
     - [Securing a thread](#securing-a-thread)
       - [Without the handler](#without-the-handler)
-    - [`resumableChat(options)`](#resumablechatoptions)
     - [`createThreadStore(db)`](#createthreadstoredb)
     - [Threads](#threads)
     - [Messages](#messages)
@@ -279,7 +278,11 @@ export async function POST(req: Request) {
   });
 
   let persisted = false;
-  const persist = async ({ responseMessage }: { responseMessage: UIMessage }) => {
+  const persist = async ({
+    responseMessage,
+  }: {
+    responseMessage: UIMessage;
+  }) => {
     if (persisted || responseMessage.parts.length === 0) return;
     persisted = true;
     await store.appendMessages(id, [responseMessage]);
