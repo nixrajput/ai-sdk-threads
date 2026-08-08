@@ -16,13 +16,17 @@
     "./drizzle": {
       "types": "./dist/drizzle/index.d.ts",
       "default": "./dist/drizzle/index.js"
+    },
+    "./handler": {
+      "types": "./dist/handler/index.d.ts",
+      "default": "./dist/handler/index.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsdown src/index.ts src/drizzle/index.ts --format esm --dts --no-fixed-extension && publint && attw --pack . --profile esm-only",
+    "build": "tsdown src/index.ts src/drizzle/index.ts src/handler/index.ts --format esm --dts --no-fixed-extension && publint && attw --pack . --profile esm-only",
     "test": "vitest run",
     "bench": "vitest bench --run",
     "ts:check": "tsc --noEmit && tsc --noEmit -p tsconfig.no-node.json",
