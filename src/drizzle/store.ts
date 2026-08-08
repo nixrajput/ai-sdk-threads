@@ -8,6 +8,7 @@ import type {
   ListThreadsQuery,
   ListThreadsResult,
   StoredMessage,
+  StreamStateStore,
   Thread,
   ThreadStore,
   UpdateThreadPatch,
@@ -91,7 +92,7 @@ async function forStorage(input: UIMessage[]): Promise<UIMessage[]> {
 export function createThreadStore(
   db: ThreadStoreDatabase,
   options: ThreadStoreOptions = {},
-): ThreadStore {
+): ThreadStore & StreamStateStore {
   const sdkVersion = options.sdkVersion ?? CURRENT_SDK_MAJOR;
 
   return {
@@ -206,7 +207,7 @@ export function createThreadStore(
       });
     },
 
-    async setActiveStream(threadId: string, streamId: string | null): Promise<void> {
+    async setActiveStream(threadId: string, streamId: string): Promise<void> {
       const [row] = await db
         .update(threads)
         .set({ activeStreamId: streamId })
@@ -215,14 +216,24 @@ export function createThreadStore(
       if (!row) throw notFound(threadId);
     },
 
+    async clearActiveStream(threadId: string, streamId: string): Promise<void> {
+      // Conditional on purpose: a stream finishing after a newer one started must not clear the
+      // newer one's id, or the live reply becomes unresumable.
+      await db
+        .update(threads)
+        .set({ activeStreamId: null })
+        .where(and(eq(threads.id, threadId), eq(threads.activeStreamId, streamId)));
+    },
+
     async getActiveStream(threadId: string): Promise<string | null> {
+      // null rather than a throw for a missing thread, matching getThread: a resume can arrive
+      // before the first POST has created the row, and that is "nothing to resume", not an error.
       const [row] = await db
         .select({ activeStreamId: threads.activeStreamId })
         .from(threads)
         .where(eq(threads.id, threadId))
         .limit(1);
-      if (!row) throw notFound(threadId);
-      return row.activeStreamId;
+      return row?.activeStreamId ?? null;
     },
 
     async loadMessages(threadId: string): Promise<UIMessage[]> {

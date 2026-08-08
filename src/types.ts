@@ -55,6 +55,16 @@ export interface ThreadStore {
   deleteThread(id: string): Promise<void>;
   appendMessages(threadId: string, messages: UIMessage[]): Promise<StoredMessage[]>;
   loadMessages(threadId: string): Promise<UIMessage[]>;
-  setActiveStream(threadId: string, streamId: string | null): Promise<void>;
+}
+
+/**
+ * Stream state, kept out of `ThreadStore` so a hand-written store is not forced to implement
+ * what only `resumableChat` uses. The drizzle store provides both.
+ */
+export interface StreamStateStore {
+  setActiveStream(threadId: string, streamId: string): Promise<void>;
+  /** Clears only if `streamId` is still the active one, so a finishing stream cannot wipe a newer one. */
+  clearActiveStream(threadId: string, streamId: string): Promise<void>;
+  /** `null` when the thread has no active stream, or no row at all. */
   getActiveStream(threadId: string): Promise<string | null>;
 }

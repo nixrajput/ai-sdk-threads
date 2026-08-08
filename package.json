@@ -42,10 +42,14 @@
   },
   "peerDependencies": {
     "ai": ">=6.0.0 <8",
-    "drizzle-orm": "^0.45.0"
+    "drizzle-orm": "^0.45.0",
+    "resumable-stream": "^2.2.0"
   },
   "peerDependenciesMeta": {
     "drizzle-orm": {
+      "optional": true
+    },
+    "resumable-stream": {
       "optional": true
     }
   },
@@ -59,6 +63,7 @@
     "drizzle-orm": "^0.45.2",
     "knip": "^6.32.0",
     "publint": "^0.3.23",
+    "resumable-stream": "^2.2.12",
     "tsdown": "^0.22.14",
     "typescript": "^5.9.0",
     "vitest": "^4.1.10",
@@ -82,8 +87,5 @@
     "chat-history",
     "uimessage",
     "drizzle"
-  ],
-  "dependencies": {
-    "resumable-stream": "^2.2.12"
-  }
+  ]
 }

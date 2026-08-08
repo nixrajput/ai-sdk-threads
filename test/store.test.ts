@@ -109,12 +109,31 @@ describe("stream state", () => {
     expect(await store.getActiveStream(t.id)).toBe("stream-1");
     expect((await store.getThread(t.id))?.activeStreamId).toBe("stream-1");
 
-    await store.setActiveStream(t.id, null);
+    await store.clearActiveStream(t.id, "stream-1");
     expect(await store.getActiveStream(t.id)).toBeNull();
   });
 
-  test("both reject an unknown thread", async () => {
+  // A stream finishing after a newer one started must not clear the newer one's id, or the
+  // live reply stops being resumable.
+  test("clearing is conditional on still being the active stream", async () => {
+    const t = await store.createThread({});
+    await store.setActiveStream(t.id, "old");
+    await store.setActiveStream(t.id, "new");
+
+    await store.clearActiveStream(t.id, "old");
+    expect(await store.getActiveStream(t.id)).toBe("new");
+
+    await store.clearActiveStream(t.id, "new");
+    expect(await store.getActiveStream(t.id)).toBeNull();
+  });
+
+  // A resume can arrive before the first POST created the row; that is "nothing to resume".
+  test("getActiveStream returns null for an unknown thread", async () => {
+    expect(await store.getActiveStream("nope")).toBeNull();
+  });
+
+  test("clearing an unknown thread is a no-op, setting one throws", async () => {
+    await expect(store.clearActiveStream("nope", "s1")).resolves.toBeUndefined();
     await expect(store.setActiveStream("nope", "s1")).rejects.toThrow(/thread/i);
-    await expect(store.getActiveStream("nope")).rejects.toThrow(/thread/i);
   });
 });

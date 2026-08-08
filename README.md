@@ -63,7 +63,7 @@ ai-sdk-threads is those two tables and a small typed store over them. Message `p
 - **Your migrations** - the tables are exported as drizzle objects and land in your own schema and migration history.
 - **Keyset pagination** - `listThreads` pages by cursor, not `OFFSET`, so page 400 costs what page 1 does.
 - **`convertToUIMessages`** - the `ModelMessage` to `UIMessage` direction the SDK does not ship ([vercel/ai#7180][issue7180]).
-- **Zero runtime dependencies** - the core and the adapter both. `ai` and `drizzle-orm` are peers.
+- **Zero runtime dependencies** - `ai`, `drizzle-orm` and `resumable-stream` are peers, the last two optional. Install only what you use.
 - **Edge-safe core** - no Node globals anywhere in `src/`, enforced by a second typecheck in CI.
 
 ## Getting started
@@ -326,7 +326,9 @@ export const { POST, GET, DELETE } = resumableChat({
 });
 ```
 
-Redis is your dependency, not this package's - `resumable-stream` itself ships with none.
+`resumable-stream` is an optional peer, so add it when you use this module: `npm install resumable-stream`. Redis on top of that is your choice, not this package's - `resumable-stream` itself ships with no dependencies.
+
+The default in-memory context is a single **process-wide** instance, so splitting POST and GET across two route files works. It still cannot cross processes: on more than one instance, a resume that lands elsewhere answers 204.
 
 `DELETE` forgets a stream rather than killing it: `resumable-stream` exposes no abort, so the generation finishes server-side (and is still persisted) but stops being resumable. That is what a stop button wants in practice - the answer is saved, the client stops following it.
 

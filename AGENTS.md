@@ -15,7 +15,7 @@ Last updated: 2026-08-08
 | Tests         | vitest against PGlite - real Postgres semantics, in-process, no Docker |
 | Lint / format | Biome - double quotes, semicolons, trailing commas, 100 columns        |
 | Peers         | `ai` (`>=6 <8`, dev-tested on 7.0.x); `drizzle-orm` `^0.45` (optional) |
-| Runtime deps  | none, in the core or the adapter - this is a feature, not an accident  |
+| Runtime deps  | none. `ai`, `drizzle-orm` and `resumable-stream` are peers, the last two optional |
 
 ### Layout
 
@@ -30,13 +30,14 @@ src/
   drizzle/index.ts  the ./drizzle subpath barrel
   handler/body.ts   parseChatBody() + ChatBodyError - the request envelope
   handler/index.ts  chatHandler() - the ./handler subpath barrel
+  resume/index.ts   resumableChat() + createMemoryStreamContext() - the ./resume barrel
 test/
   db.ts             makeDb() - a fresh PGlite + drizzle database per test
 ```
 
-Three build entry points, one per public subpath: `.`, `./drizzle`, `./handler`. Adding a subpath means adding it to `exports` **and** to the tsdown entry list in the `build` script.
+Four build entry points, one per public subpath: `.`, `./drizzle`, `./handler`, `./resume`. Adding a subpath means adding it to `exports` **and** to the tsdown entry list in the `build` script.
 
-`handler/index.ts` is where every AI SDK streaming touchpoint lives, deliberately: an SDK major that renames `toUIMessageStreamResponse`, `onEnd`, `generateMessageId`, or `consumeStream` is a change in that one file. Two behaviours there were established by measurement, not documentation, and both have a regression test - do not "simplify" either away. `originalMessages` is never passed (given a history ending in an assistant message the SDK reuses that id and loses the new reply), and a reply is only stored once no part is still in a streaming state (a disconnect otherwise persists a half-sentence).
+`handler/index.ts` holds the SDK's streaming touchpoints for the POST path (`toUIMessageStreamResponse`, `onEnd`, `generateMessageId`, `consumeStream`); `resume/index.ts` owns the ones for the resume path (`UI_MESSAGE_STREAM_HEADERS` and raw SSE `Response` construction). An SDK rename is a change in those two files and nowhere else - keep it that way. Two behaviours there were established by measurement, not documentation, and both have a regression test - do not "simplify" either away. `originalMessages` is never passed (given a history ending in an assistant message the SDK reuses that id and loses the new reply), and a reply is only stored once no part is still in a streaming state (a disconnect otherwise persists a half-sentence).
 
 ### The data model
 
@@ -55,6 +56,8 @@ Table names are prefixed `ai_sdk_` because the tables land in the consumer's own
 `ts:check` runs `tsc` twice: once normally, once with `tsconfig.no-node.json`, which typechecks `src/` with no Node types at all. AI SDK routes commonly run on edge runtimes, so a `process` or `Buffer` reference anywhere in `src/` is a bug and fails there. If a file ever genuinely needs Node, exempt it deliberately rather than deleting the guard.
 
 `.githooks/pre-push` also prints an inform-only report: per-file size deltas against the published version, npm/Bundlephobia bundle metrics, benchmarks, knip, and coverage. It never blocks a push (`|| true`), skips bench and coverage when no `src/`, `test/`, `bench/`, or `package.json` file changed, and uses a short bench sample. `npm run report` runs the full-fidelity version, and CI attaches it to every PR summary.
+
+`resumableChat` reuses `chatHandler` through its single `beforeStream` seam rather than duplicating the choreography. Three things there were established by measurement and each has a regression test: the default stream context is one **process-wide** singleton (a per-call one gives the documented two-file route layout two contexts that cannot see each other, so resume silently never works); `GET`/`DELETE` run `authorize` themselves because `chatHandler` only guards POST; and everything inside `consumeSseStream` is wrapped, because the SDK discards that promise and an escaping rejection takes the process down.
 
 ### Conventions
 
