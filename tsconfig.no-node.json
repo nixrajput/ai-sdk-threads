@@ -1,11 +1,14 @@
-// The package targets AI SDK routes, which commonly run on edge runtimes. No file
-// in src/ may reach for an ambient Node global, so src/ is typechecked a second
-// time with no Node types at all and a `process`/`Buffer` slip fails here rather
-// than at a consumer whose runtime has neither.
+// The package targets AI SDK routes, which commonly run on edge runtimes. No file in src/ may
+// reach for an ambient Node global, so src/ is typechecked a second time with no Node types at all
+// and a `process`/`Buffer` slip fails here rather than at a consumer whose runtime has neither.
+//
+// src/cli is the one deliberate exemption: it is a `bin` entry that only ever runs under Node, so
+// node:util and process are legitimate there. Nothing a consumer imports pulls it in.
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "types": []
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/cli"]
 }
