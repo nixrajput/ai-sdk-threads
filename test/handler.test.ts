@@ -583,7 +583,15 @@ describe("chatHandler branching", () => {
     const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
     const original = await firstTurn();
 
-    const { forkAt, regenerateFrom, siblingsOf, setActiveLeaf, getTree, ...plain } = branchStore;
+    // Underscored so biome allows them unused: the point is the rest, a store without branching.
+    const {
+      forkAt: _forkAt,
+      regenerateFrom: _regenerateFrom,
+      siblingsOf: _siblingsOf,
+      setActiveLeaf: _setActiveLeaf,
+      getTree: _getTree,
+      ...plain
+    } = branchStore;
     const handler = chatHandler({
       store: plain,
       execute: ({ modelMessages }) =>
@@ -602,9 +610,11 @@ describe("chatHandler branching", () => {
     await response.text();
 
     expect(warns.mock.calls.flat().join(" ")).toContain("cannot branch");
-    expect(forkAt && regenerateFrom && siblingsOf && setActiveLeaf && getTree).toBeTruthy();
+    // The reply still landed, just without forking.
+    expect((await branchStore.loadMessages("t1")).length).toBeGreaterThan(1);
     warns.mockRestore();
   });
+
   // After an edit the client still knows the original id, and resends it every turn. Matching
   // against the whole tree (not the live path) is what stops that becoming a duplicate row.
   test("a turn after an edit does not resurrect the replaced message", async () => {
