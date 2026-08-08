@@ -43,7 +43,9 @@ Four build entry points, one per public subpath: `.`, `./drizzle`, `./handler`, 
 
 Two tables. `ai_sdk_threads` holds the thread plus an `activeLeafId`; `ai_sdk_messages` holds one row per message with a `parentId`. Messages therefore form a **tree**, and the thread's active conversation is the path from `activeLeafId` back to the root - that is what `orderPath()` walks and what `loadMessages()` returns.
 
-The current APIs only ever use that tree linearly (append chains to the leaf, the leaf advances). The tree exists from v0.1 anyway so that branching does not require a breaking schema change later. Do not "simplify" `parentId` or `activeLeafId` away - and do not add branching APIs before the plan says to.
+The tree is fully exercised now: `forkAt`, `regenerateFrom`, `siblingsOf`, `setActiveLeaf` and `getTree` live on `BranchingStore`, and `chatHandler` routes the SDK client's regenerate and edit shapes into them. Nothing is ever deleted - editing or regenerating leaves the old version as a sibling. Do not "simplify" `parentId` or `activeLeafId` away.
+
+Two things about editing are easy to get wrong. The client reuses the edited message's **id**, which the original row still holds, so the fork is written under a fresh server id - and deduplication of resent history therefore matches against `getTree`, not the live path, or the id the client keeps sending would be re-inserted. Both have regression tests.
 
 Table names are prefixed `ai_sdk_` because the tables land in the consumer's own database next to their application tables.
 

@@ -38,6 +38,7 @@ Chat thread and message persistence for the **Vercel AI SDK** - `UIMessage` part
     - [Threads](#threads)
     - [Messages](#messages)
     - [`convertToUIMessages(modelMessages, options?)`](#converttouimessagesmodelmessages-options)
+    - [Branching](#branching)
     - [`orderPath(rows, activeLeafId)`](#orderpathrows-activeleafid)
     - [Schema](#schema)
   - [How messages are stored](#how-messages-are-stored)
@@ -57,6 +58,7 @@ ai-sdk-threads is those two tables and a small typed store over them. Message `p
 ## Features
 
 - **One-line chat route** - `chatHandler` replaces the load/store/stream/store boilerplate every AI SDK app writes by hand.
+- **Branching** - edit or regenerate a message and the old version survives as a sibling, the way ChatGPT does it ([vercel/ai#2929][issue2929]).
 - **Resumable streams** - `resumableChat` ships the POST/GET/DELETE trio, so a reload mid-answer picks the stream back up.
 - **`UIMessage`-native** - `parts` and `metadata` stored verbatim as `jsonb`, never flattened to text.
 - **A drizzle/Postgres adapter** - works with node-postgres, postgres.js, Neon, Vercel Postgres, or PGlite.
@@ -430,6 +432,46 @@ const uiMessages = convertToUIMessages([
 - Ids come from `options.generateId`, defaulting to the SDK's `generateId`.
 - Content this version does not model - `file`, `image`, and provider-specific parts - **throws** rather than being guessed at, so a lossy conversion cannot reach your database.
 
+### Branching
+
+Messages have always formed a tree here - `parentId` on every row, `activeLeafId` on the thread. These are the operations that use it. Nothing is ever deleted: editing or regenerating leaves the old version in place as a sibling.
+
+`chatHandler` wires the two common cases for you, from what the SDK client already sends:
+
+| The user does           | The client sends                                    | The handler does                                     |
+| ----------------------- | --------------------------------------------------- | ---------------------------------------------------- |
+| `regenerate()`          | `trigger: "regenerate-message"` + `messageId`        | `regenerateFrom` - the new answer becomes a sibling   |
+| Edits an earlier message | `messageId` with changed parts                      | `forkAt` - a new branch from that point               |
+| Retries unchanged       | `messageId` with identical parts                    | nothing new is stored                                 |
+
+So regenerate and edit work with no extra code. The store methods are there for the UI:
+
+| Method                          | Returns                                    | Notes                                                          |
+| ------------------------------- | ------------------------------------------ | -------------------------------------------------------------- |
+| `siblingsOf(messageId)`         | `{ siblings, index }`                      | Everything sharing that message's parent, oldest first.         |
+| `setActiveLeaf(threadId, id)`   | `Promise<void>`                            | Switches which path is live. Any message in the thread will do. |
+| `getTree(threadId)`             | `Promise<StoredMessage[]>`                 | Every message, flat. Walk `parentId` to rebuild the shape.      |
+| `forkAt(messageId, messages)`   | `Promise<StoredMessage[]>`                 | New branch from that message's parent.                          |
+| `regenerateFrom(messageId)`     | `Promise<{ parentId }>`                    | Moves the leaf to the parent so you can re-answer.              |
+
+Previous/next buttons over an answer's variants are `siblingsOf` plus `setActiveLeaf`:
+
+```tsx
+const { siblings, index } = await store.siblingsOf(message.id);
+
+// "< 2 / 3 >"
+async function show(next: number) {
+  const target = siblings[next];
+  if (target) await store.setActiveLeaf(threadId, target.id);
+}
+```
+
+`loadMessages` then returns the newly selected path, so re-rendering from it is all the UI has to do. This is the shape [ai-elements' `MessageBranch`](https://ai-sdk.dev/elements) expects.
+
+**Editing changes the message id.** The SDK client reuses the edited message's id, but the original row still holds it - so the edit is stored as a new row with a new id and the old wording is kept as its sibling. Your client picks the new id up on the next `loadMessages`. Nothing is lost either way.
+
+`setActiveLeaf` is also the repair path if a leaf ever points at a message that no longer exists: point it at any message still in the thread and the thread is readable again.
+
 ### `orderPath(rows, activeLeafId)`
 
 Walks `parentId` links from a leaf back to the root and returns the rows oldest first. `loadMessages` uses it; it is exported for when you query the tables yourself. Returns `[]` for a `null` leaf and throws on a broken link, naming the id it could not find.
@@ -469,7 +511,7 @@ The timestamp columns are **millisecond** precision, not Postgres' microsecond d
 
 Each message row points at its parent, so the messages of a thread form a tree rather than a flat list, and the thread's `active_leaf_id` marks which path through that tree is the live conversation. `loadMessages` returns exactly that path.
 
-Today every write extends one path, so the tree is a straight line and this is just a linked list with extra columns. It is shaped this way from the start so that the columns do not have to change later. If you query the tables directly, walk `parent_id` from `active_leaf_id` (or call `orderPath`) rather than sorting by `created_at`.
+A thread is genuinely a tree once anything has been edited or regenerated, so if you query the tables directly, walk `parent_id` from `active_leaf_id` (or call `orderPath`) rather than sorting by `created_at` - a plain sort interleaves branches that were never part of the same conversation.
 
 `sdk_version` records which `ai` major wrote each row. Nothing reads it yet; it is there so a future SDK major can migrate stored parts instead of guessing what shape they are in.
 
@@ -542,3 +584,4 @@ ai-sdk-threads is MIT licensed and free to use, always. If it saves you writing 
 [contributors]: https://github.com/nixrajput/ai-sdk-threads/graphs/contributors
 [license]: https://github.com/nixrajput/ai-sdk-threads/blob/main/LICENSE
 [issue7180]: https://github.com/vercel/ai/issues/7180
+[issue2929]: https://github.com/vercel/ai/issues/2929
