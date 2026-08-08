@@ -30,6 +30,8 @@ Chat thread and message persistence for the **Vercel AI SDK** - `UIMessage` part
     - [Add the tables to your schema](#add-the-tables-to-your-schema)
     - [Quickstart](#quickstart)
   - [API](#api)
+    - [`chatHandler(options)`](#chathandleroptions)
+      - [Without the handler](#without-the-handler)
     - [`createThreadStore(db)`](#createthreadstoredb)
     - [Threads](#threads)
     - [Messages](#messages)
@@ -52,6 +54,7 @@ ai-sdk-threads is those two tables and a small typed store over them. Message `p
 
 ## Features
 
+- **One-line chat route** - `chatHandler` replaces the load/store/stream/store boilerplate every AI SDK app writes by hand.
 - **`UIMessage`-native** - `parts` and `metadata` stored verbatim as `jsonb`, never flattened to text.
 - **A drizzle/Postgres adapter** - works with node-postgres, postgres.js, Neon, Vercel Postgres, or PGlite.
 - **Your migrations** - the tables are exported as drizzle objects and land in your own schema and migration history.
@@ -106,33 +109,19 @@ import { db } from "./db";
 export const store = createThreadStore(db);
 ```
 
-Persist both sides of a turn in your chat route. `onEnd` fires once the stream is complete, and `generateMessageId` is what gives the assistant reply its id - pass it, because the store keys rows by message id and the SDK otherwise leaves the id empty on a normal user turn:
+Then your whole chat route is the handler. It loads the thread, stores the incoming message before streaming, streams the answer, and stores the reply:
 
 ```ts
 // app/api/chat/route.ts
 import { openai } from "@ai-sdk/openai";
-import { convertToModelMessages, generateId, streamText } from "ai";
+import { streamText } from "ai";
+import { chatHandler } from "ai-sdk-threads/handler";
 import { store } from "@/lib/threads";
 
-export async function POST(req: Request) {
-  const { id, messages } = await req.json();
-
-  // The user's newest message; the rest are already stored.
-  await store.appendMessages(id, messages.slice(-1));
-
-  const result = streamText({
-    model: openai("gpt-5"),
-    messages: convertToModelMessages(messages),
-  });
-
-  return result.toUIMessageStreamResponse({
-    originalMessages: messages,
-    generateMessageId: generateId,
-    onEnd: async ({ responseMessage }) => {
-      await store.appendMessages(id, [responseMessage]);
-    },
-  });
-}
+export const POST = chatHandler({
+  store,
+  execute: ({ modelMessages }) => streamText({ model: openai("gpt-5"), messages: modelMessages }),
+});
 ```
 
 Load the history when the page renders and hand it straight to `useChat`:
@@ -182,6 +171,88 @@ redirect(`/chat/${thread.id}`);
 ```
 
 ## API
+
+### `chatHandler(options)`
+
+Returns a `(request: Request) => Promise<Response>` - usable directly as a Next.js App Router `POST`, a React Router action, or any fetch-based server. It owns the persistence choreography so your route only says which model to call.
+
+```ts
+import { chatHandler } from "ai-sdk-threads/handler";
+
+export const POST = chatHandler({
+  store,
+  execute: ({ modelMessages }) => streamText({ model: openai("gpt-5"), messages: modelMessages }),
+});
+```
+
+| Option          | Required | What it does                                                                                        |
+| --------------- | -------- | --------------------------------------------------------------------------------------------------- |
+| `store`         | yes      | The `ThreadStore` to persist into.                                                                   |
+| `execute`       | yes      | Called with `{ threadId, uiMessages, modelMessages, request }`; return a `streamText` result.         |
+| `createThread`  | no       | Called when a request names a thread that does not exist yet. Return `{ userId?, metadata? }`.        |
+| `generateTitle` | no       | Called once per thread with `{ firstUserMessage }`. Runs detached - it never delays the response.     |
+| `onError`       | no       | Return a `Response` to replace the default 500, or `undefined` to keep it.                            |
+
+What it does, in order:
+
+1. Parses the body, answering **400** on anything malformed.
+2. Loads the thread, creating it (scoped via `createThread`) if this is the first request to name it.
+3. Stores the incoming message **before** streaming, so a mid-stream crash cannot lose it.
+4. Calls `execute` with the thread's full validated history.
+5. Streams the reply and stores it on completion, with a server-generated message id.
+6. Keeps the stream running server-side so a slow client cannot leave the generation half-finished.
+
+Scope threads to the signed-in user, and title them from the first message:
+
+```ts
+export const POST = chatHandler({
+  store,
+  execute: ({ modelMessages }) => streamText({ model: openai("gpt-5"), messages: modelMessages }),
+  createThread: async ({ request }) => ({ userId: await userIdFrom(request) }),
+  generateTitle: async ({ firstUserMessage }) => {
+    const { text } = await generateText({
+      model: openai("gpt-5-mini"),
+      prompt: `Title this in under six words:\n\n${JSON.stringify(firstUserMessage.parts)}`,
+    });
+    return text;
+  },
+});
+```
+
+Both wire shapes work unchanged. The default transport posts the whole conversation each turn; a custom `prepareSendMessagesRequest` that posts only `{ id, message }` works too. The handler stores only messages it has not already seen, so neither shape duplicates rows.
+
+**Errors and disconnects.** A throwing `execute` answers 500 (or whatever `onError` returns) and leaves the user's message stored with no half-written reply, so the client can retry. A client that disconnects mid-stream produces no reply content at all - the handler notices and writes nothing rather than storing an empty assistant message. If storing the reply fails, it is logged via `console.error` rather than thrown into stream teardown where nothing could act on it.
+
+#### Without the handler
+
+The store is perfectly usable on its own if you want to own the route. Two things matter: store the user message *before* streaming, and pass `generateMessageId` - rows are keyed by message id, and the SDK leaves an assistant reply's id empty on a normal user turn.
+
+```ts
+// app/api/chat/route.ts
+import { openai } from "@ai-sdk/openai";
+import { convertToModelMessages, generateId, streamText } from "ai";
+import { store } from "@/lib/threads";
+
+export async function POST(req: Request) {
+  const { id, messages } = await req.json();
+
+  // The user's newest message; the rest are already stored.
+  await store.appendMessages(id, messages.slice(-1));
+
+  const result = streamText({
+    model: openai("gpt-5"),
+    messages: await convertToModelMessages(messages),
+  });
+
+  return result.toUIMessageStreamResponse({
+    originalMessages: messages,
+    generateMessageId: generateId,
+    onEnd: async ({ responseMessage }) => {
+      await store.appendMessages(id, [responseMessage]);
+    },
+  });
+}
+```
 
 ### `createThreadStore(db)`
 
