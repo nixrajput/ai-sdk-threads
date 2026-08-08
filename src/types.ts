@@ -58,6 +58,26 @@ export interface ThreadStore {
 }
 
 /**
+ * Tree operations over the `parentId` links every message already carries. Kept out of
+ * `ThreadStore` so a hand-written store is not forced to implement them; the drizzle store does.
+ */
+export interface BranchingStore {
+  /**
+   * Starts a new branch in place of `messageId`: the new messages chain from that message's
+   * PARENT, so `messageId` and everything after it on that path are left behind but not deleted.
+   */
+  forkAt(messageId: string, messages: UIMessage[]): Promise<StoredMessage[]>;
+  /** Moves the active leaf back to `messageId`'s parent so the caller can re-answer from there. */
+  regenerateFrom(messageId: string): Promise<{ parentId: string | null }>;
+  /** Every message sharing `messageId`'s parent, oldest first, and which one `messageId` is. */
+  siblingsOf(messageId: string): Promise<{ siblings: StoredMessage[]; index: number }>;
+  /** Switches which path through the tree is live. Any message in the thread may be the leaf. */
+  setActiveLeaf(threadId: string, messageId: string): Promise<void>;
+  /** Every message in the thread, flat; walk `parentId` to rebuild the shape. */
+  getTree(threadId: string): Promise<StoredMessage[]>;
+}
+
+/**
  * Stream state, kept out of `ThreadStore` so a hand-written store is not forced to implement
  * what only `resumableChat` uses. The drizzle store provides both.
  */

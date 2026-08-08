@@ -1,9 +1,10 @@
 import type { UIMessage } from "ai";
 import { generateId, validateUIMessages } from "ai";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lt, or } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { orderPath } from "../chain.js";
 import type {
+  BranchingStore,
   CreateThreadInput,
   ListThreadsQuery,
   ListThreadsResult,
@@ -89,10 +90,77 @@ async function forStorage(input: UIMessage[]): Promise<UIMessage[]> {
   return validateUIMessages({ messages: input });
 }
 
+const messageNotFound = (id: string) => new Error(`ai-sdk-threads: message "${id}" not found`);
+
+/** Locks the thread row so concurrent writers cannot both chain to the same leaf. */
+async function lockThread(tx: ThreadStoreDatabase, threadId: string) {
+  const [thread] = await tx
+    .select({ activeLeafId: threads.activeLeafId })
+    .from(threads)
+    .where(eq(threads.id, threadId))
+    .limit(1)
+    .for("update");
+  if (!thread) throw notFound(threadId);
+  return thread;
+}
+
+async function findMessage(db: ThreadStoreDatabase, messageId: string) {
+  const [row] = await db
+    .select({ threadId: messages.threadId, parentId: messages.parentId })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .limit(1);
+  if (!row) throw messageNotFound(messageId);
+  return row;
+}
+
+/**
+ * Writes messages as one chain hanging off `parentId` and moves the thread's active leaf to the
+ * last of them. Shared by appendMessages and forkAt, which differ only in where they attach.
+ */
+async function writeChain(
+  tx: ThreadStoreDatabase,
+  threadId: string,
+  parentId: string | null,
+  validated: UIMessage[],
+  sdkVersion: number,
+): Promise<StoredMessage[]> {
+  // Every id is known up front, so the chain is computed here and written in one round-trip
+  // rather than holding the lock across one INSERT per message.
+  let cursor = parentId;
+  const rows = validated.map((message) => {
+    const row = {
+      id: message.id,
+      threadId,
+      parentId: cursor,
+      role: message.role,
+      parts: message.parts,
+      metadata: asMetadata(message.metadata ?? null),
+      sdkVersion,
+    };
+    cursor = message.id;
+    return row;
+  });
+
+  const returned = await tx.insert(messages).values(rows).returning();
+  await tx
+    .update(threads)
+    .set({ activeLeafId: cursor, updatedAt: new Date() })
+    .where(eq(threads.id, threadId));
+
+  // Keyed by id rather than trusting RETURNING's order, which SQL does not guarantee.
+  const byId = new Map(returned.map((row) => [row.id, row]));
+  return rows.map((row) => {
+    const persisted = byId.get(row.id);
+    if (!persisted) throw new Error(`ai-sdk-threads: insert did not return message "${row.id}"`);
+    return toStoredMessage(persisted);
+  });
+}
+
 export function createThreadStore(
   db: ThreadStoreDatabase,
   options: ThreadStoreOptions = {},
-): ThreadStore & StreamStateStore {
+): ThreadStore & StreamStateStore & BranchingStore {
   const sdkVersion = options.sdkVersion ?? CURRENT_SDK_MAJOR;
 
   return {
@@ -162,49 +230,73 @@ export function createThreadStore(
       const validated = await forStorage(input);
 
       return db.transaction(async (tx) => {
-        // FOR UPDATE: two concurrent appends that both read the same leaf would each chain to
-        // it and silently fork the thread into two branches.
-        const [thread] = await tx
-          .select({ activeLeafId: threads.activeLeafId })
-          .from(threads)
-          .where(eq(threads.id, threadId))
-          .limit(1)
-          .for("update");
-        if (!thread) throw notFound(threadId);
+        const thread = await lockThread(tx, threadId);
+        return writeChain(tx, threadId, thread.activeLeafId, validated, sdkVersion);
+      });
+    },
 
-        // Every id is known up front, so the parent chain is computed here and written in one
-        // round-trip rather than holding the lock across one INSERT per message.
-        let parentId = thread.activeLeafId;
-        const rows = validated.map((message) => {
-          const row = {
-            id: message.id,
-            threadId,
-            parentId,
-            role: message.role,
-            parts: message.parts,
-            metadata: asMetadata(message.metadata ?? null),
-            sdkVersion,
-          };
-          parentId = message.id;
-          return row;
-        });
+    async forkAt(messageId: string, input: UIMessage[]): Promise<StoredMessage[]> {
+      if (input.length === 0) return [];
+      const validated = await forStorage(input);
 
-        const returned = await tx.insert(messages).values(rows).returning();
+      return db.transaction(async (tx) => {
+        const target = await findMessage(tx, messageId);
+        await lockThread(tx, target.threadId);
+        // Chained from the target's PARENT, which is what makes this a sibling branch rather
+        // than a continuation. The old rows stay put and remain reachable via getTree.
+        return writeChain(tx, target.threadId, target.parentId, validated, sdkVersion);
+      });
+    },
+
+    async regenerateFrom(messageId: string): Promise<{ parentId: string | null }> {
+      return db.transaction(async (tx) => {
+        const target = await findMessage(tx, messageId);
+        await lockThread(tx, target.threadId);
         await tx
           .update(threads)
-          .set({ activeLeafId: parentId, updatedAt: new Date() })
-          .where(eq(threads.id, threadId));
-
-        // Keyed by id rather than trusting RETURNING's order, which SQL does not guarantee.
-        const byId = new Map(returned.map((row) => [row.id, row]));
-        return rows.map((row) => {
-          const persisted = byId.get(row.id);
-          if (!persisted) {
-            throw new Error(`ai-sdk-threads: insert did not return message "${row.id}"`);
-          }
-          return toStoredMessage(persisted);
-        });
+          .set({ activeLeafId: target.parentId, updatedAt: new Date() })
+          .where(eq(threads.id, target.threadId));
+        return { parentId: target.parentId };
       });
+    },
+
+    async siblingsOf(messageId: string): Promise<{ siblings: StoredMessage[]; index: number }> {
+      const target = await findMessage(db, messageId);
+      // Scoped by thread as well as parent: `parent_id IS NULL` alone would match the roots of
+      // every other thread too.
+      const rows = await db
+        .select()
+        .from(messages)
+        .where(
+          and(
+            eq(messages.threadId, target.threadId),
+            target.parentId === null
+              ? isNull(messages.parentId)
+              : eq(messages.parentId, target.parentId),
+          ),
+        )
+        .orderBy(asc(messages.createdAt), asc(messages.id));
+
+      const siblings = rows.map(toStoredMessage);
+      return { siblings, index: siblings.findIndex((row) => row.id === messageId) };
+    },
+
+    async setActiveLeaf(threadId: string, messageId: string): Promise<void> {
+      const target = await findMessage(db, messageId);
+      if (target.threadId !== threadId) {
+        throw new Error(
+          `ai-sdk-threads: message "${messageId}" does not belong to thread "${threadId}"`,
+        );
+      }
+      await db
+        .update(threads)
+        .set({ activeLeafId: messageId, updatedAt: new Date() })
+        .where(eq(threads.id, threadId));
+    },
+
+    async getTree(threadId: string): Promise<StoredMessage[]> {
+      const rows = await db.select().from(messages).where(eq(messages.threadId, threadId));
+      return rows.map(toStoredMessage);
     },
 
     async setActiveStream(threadId: string, streamId: string): Promise<void> {
