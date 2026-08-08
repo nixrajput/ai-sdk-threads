@@ -40,7 +40,10 @@ Chat thread and message persistence for the **Vercel AI SDK** - `UIMessage` part
     - [`convertToUIMessages(modelMessages, options?)`](#converttouimessagesmodelmessages-options)
     - [Branching](#branching)
     - [`orderPath(rows, activeLeafId)`](#orderpathrows-activeleafid)
+    - [SQLite](#sqlite)
     - [Schema](#schema)
+  - [Migrating between AI SDK versions](#migrating-between-ai-sdk-versions)
+  - [Importing from the Vercel template](#importing-from-the-vercel-template)
   - [How messages are stored](#how-messages-are-stored)
   - [Requirements](#requirements)
   - [Contributing](#contributing)
@@ -58,6 +61,7 @@ ai-sdk-threads is those two tables and a small typed store over them. Message `p
 ## Features
 
 - **One-line chat route** - `chatHandler` replaces the load/store/stream/store boilerplate every AI SDK app writes by hand.
+- **Postgres or SQLite** - the same `ThreadStore` contract over either, verified by one parity suite run against both.
 - **Branching** - edit or regenerate a message and the old version survives as a sibling, the way ChatGPT does it ([vercel/ai#2929][issue2929]).
 - **Resumable streams** - `resumableChat` ships the POST/GET/DELETE trio, so a reload mid-answer picks the stream back up.
 - **`UIMessage`-native** - `parts` and `metadata` stored verbatim as `jsonb`, never flattened to text.
@@ -74,7 +78,7 @@ ai-sdk-threads is those two tables and a small typed store over them. Message `p
 
 - Node.js `>=20`
 - A Postgres database and a drizzle instance pointed at it
-- `ai` `>=6 <8` (developed and tested against 7.0.x)
+- `ai` `>=6 <8` (CI runs the suite against both 7.0.x and the 6.x floor)
 
 ### Install
 
@@ -481,6 +485,26 @@ async function show(next: number) {
 
 Walks `parentId` links from a leaf back to the root and returns the rows oldest first. `loadMessages` uses it; it is exported for when you query the tables yourself. Returns `[]` for a `null` leaf and throws on a broken link, naming the id it could not find.
 
+### SQLite
+
+The same contract, over any drizzle SQLite database - libsql, better-sqlite3, Bun's, or Cloudflare D1:
+
+```ts
+import { createThreadStore } from "ai-sdk-threads/sqlite";
+import { drizzle } from "drizzle-orm/libsql";
+
+const store = createThreadStore(drizzle(client));
+```
+
+```ts
+// db/schema.ts - the SQLite tables, same names and columns
+export { messages, threads } from "ai-sdk-threads/sqlite";
+```
+
+Every method behaves identically; a parity suite runs the whole contract against both adapters, so the two cannot drift. Two column types necessarily differ: `parts` and `metadata` are `text` with drizzle's `json` mode instead of `jsonb`, and timestamps are integer milliseconds instead of `timestamptz(3)` - the same precision the keyset cursor needs.
+
+One thing SQLite needs that Postgres does not: **`PRAGMA foreign_keys = ON`**, or deleting a thread will not delete its messages. SQLite defaults it off per connection.
+
 ### Schema
 
 ```ts
@@ -512,6 +536,54 @@ import { messages, threads } from "ai-sdk-threads/drizzle";
 
 The timestamp columns are **millisecond** precision, not Postgres' microsecond default. `listThreads`' cursor carries `created_at` through a JavaScript `Date`, which cannot represent microseconds; at the default precision the cursor rounds down and the following page silently skips every row sharing that millisecond. Keep the precision if you hand-write the migration.
 
+## Migrating between AI SDK versions
+
+Every message row records the `ai` major that wrote it, in `sdk_version`. That is what makes an upgrade checkable rather than hopeful.
+
+**As it stands, there is nothing to convert.** Stored `UIMessage.parts` are the same shape in ai 5, 6 and 7 - measured, not assumed: real payloads captured from `ai@5.0.228` and `ai@6.0.246` are byte-identical to v7's and are accepted unchanged by v7's own validator. Those payloads are committed as test fixtures, so if a future major does change the format, the test suite says so.
+
+Two ways to handle it when that day comes.
+
+**Lazily, in your app.** `migrateParts` brings one message's parts up to the current major. Call it on read and you never need a migration step at all; today it is a pass-through, and when a future major diverges the transform lands inside it with no change to your code:
+
+```ts
+import { migrateParts } from "ai-sdk-threads";
+
+const parts = migrateParts(row.parts, row.sdkVersion);
+```
+
+**In bulk, with the CLI.** `migrate` walks every row stamped with an older major, checks the current SDK can still read it, and restamps it:
+
+```bash
+npx ai-sdk-threads migrate --database-url "$DATABASE_URL" --dry-run
+npx ai-sdk-threads migrate --database-url "$DATABASE_URL"
+```
+
+It reports per-major counts and, importantly, **lists any row the current SDK cannot read instead of restamping it as though it were fine**. `--dry-run` writes nothing. The whole pass is one transaction.
+
+If you are on ai 6, tell the store so, or rows get stamped with the wrong major:
+
+```ts
+const store = createThreadStore(db, { sdkVersion: 6 });
+```
+
+## Importing from the Vercel template
+
+If you started from Vercel's `ai-chatbot` template, its `Chat` and `Message_v2` tables map straight across - it already stores `UIMessage` parts, so this is a copy plus the parent chain this schema uses:
+
+```bash
+npx ai-sdk-threads import-vercel --database-url "$DATABASE_URL" --dry-run
+npx ai-sdk-threads import-vercel --database-url "$DATABASE_URL"
+```
+
+Threads that already exist are skipped, so a rerun after a partial import is safe. Both commands are also exported, if you would rather run them against a database handle you already have than a connection string:
+
+```ts
+import { importVercelChat, migrateDatabase } from "ai-sdk-threads/cli";
+```
+
+The CLI needs a Postgres driver of its own - `npm i -D pg` - because this package ships none.
+
 ## How messages are stored
 
 Each message row points at its parent, so the messages of a thread form a tree rather than a flat list, and the thread's `active_leaf_id` marks which path through that tree is the live conversation. `loadMessages` returns exactly that path.
@@ -523,9 +595,10 @@ A thread is genuinely a tree once anything has been edited or regenerated, so if
 ## Requirements
 
 - Node.js `>=20`
-- `ai` `>=6 <8` (developed and tested against 7.0.x)
-- `drizzle-orm` `^0.45` for the `./drizzle` adapter (optional peer - the core does not need it)
-- Postgres
+- `ai` `>=6 <8` - CI runs the whole suite against both **7.0.x** and the **6.x** floor
+- `drizzle-orm` `^0.45` for the `./drizzle` and `./sqlite` adapters (optional peer)
+- `resumable-stream` `^2.2` for the `./resume` module (optional peer)
+- Postgres, or SQLite via `./sqlite`
 - ESM only (no CJS build)
 
 Not affiliated with Vercel. "AI SDK" refers to the [`ai` package](https://ai-sdk.dev).

@@ -31,11 +31,15 @@ src/
   handler/body.ts   parseChatBody() + ChatBodyError - the request envelope
   handler/index.ts  chatHandler() - the ./handler subpath barrel
   resume/index.ts   resumableChat() + createMemoryStreamContext() - the ./resume barrel
+  store-core.ts     dialect-independent store logic shared by both adapters
+  migrate.ts        migrateParts() - stored-parts compatibility across ai majors
+  sqlite/           the SQLite mirror of drizzle/: same tables, text-JSON and integer timestamps
+  cli/              migrate + import-vercel, and the bin that drives them
 test/
   db.ts             makeDb() - a fresh PGlite + drizzle database per test
 ```
 
-Four build entry points, one per public subpath: `.`, `./drizzle`, `./handler`, `./resume`. Adding a subpath means adding it to `exports` **and** to the tsdown entry list in the `build` script.
+Six build entry points, one per public subpath: `.`, `./drizzle`, `./handler`, `./resume`, `./sqlite`, `./cli`. Adding a subpath means adding it to `exports` **and** to the tsdown entry list in the `build` script.
 
 `handler/index.ts` holds the SDK's streaming touchpoints for the POST path (`toUIMessageStreamResponse`, `onEnd`, `generateMessageId`, `consumeStream`); `resume/index.ts` owns the ones for the resume path (`UI_MESSAGE_STREAM_HEADERS` and raw SSE `Response` construction). An SDK rename is a change in those two files and nowhere else - keep it that way. Two behaviours there were established by measurement, not documentation, and both have a regression test - do not "simplify" either away. `originalMessages` is never passed (given a history ending in an assistant message the SDK reuses that id and loses the new reply), and a reply is only stored once no part is still in a streaming state (a disconnect otherwise persists a half-sentence).
 
@@ -62,6 +66,12 @@ Table names are prefixed `ai_sdk_` because the tables land in the consumer's own
 `.githooks/pre-push` also prints an inform-only report: per-file size deltas against the published version, npm/Bundlephobia bundle metrics, benchmarks, knip, and coverage. It never blocks a push (`|| true`), skips bench and coverage when no `src/`, `test/`, `bench/`, or `package.json` file changed, and uses a short bench sample. `npm run report` runs the full-fidelity version, and CI attaches it to every PR summary.
 
 `resumableChat` reuses `chatHandler` through its single `beforeStream` seam rather than duplicating the choreography. Three things there were established by measurement and each has a regression test: the default stream context is one **process-wide** singleton (a per-call one gives the documented two-file route layout two contexts that cannot see each other, so resume silently never works); `GET`/`DELETE` run `authorize` themselves because `chatHandler` only guards POST; and everything inside `consumeSseStream` is wrapped, because the SDK discards that promise and an escaping rejection takes the process down.
+
+Both adapters share `src/store-core.ts` and each writes its own queries; `test/parity.test.ts` runs the whole contract against both, which is what stops them drifting. SQLite has no `SELECT ... FOR UPDATE` (a write transaction already holds the database) and needs `PRAGMA foreign_keys = ON` or the cascade silently does nothing.
+
+CI runs the suite against the **ai 6 floor** as well as 7, because `peerDependencies` claim `>=6 <8`. That job is not ceremony: it caught the handler passing only ai 7's `onEnd`, so no reply was ever persisted on ai 6. Both `onEnd` and `onFinish` are passed now, guarded so only one fires. The test model rig in `test/model.ts` detects which provider spec the installed major ships - keep it that way or the v6 job stops exercising the streaming code.
+
+Stored `UIMessage.parts` are identical across ai 5, 6 and 7. That is measured: `test/fixtures/parts-v{5,6}` hold real captured payloads and `test/compat.test.ts` asserts the current SDK still reads them. `migrateParts` is therefore a pass-through today, and those fixtures are the tripwire that tells you when it stops being one.
 
 ### Conventions
 

@@ -1,6 +1,6 @@
 {
   "name": "ai-sdk-threads",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Chat thread and message persistence for the Vercel AI SDK - UIMessage-native schema, Drizzle/Postgres adapter. Your database, your data.",
   "type": "module",
   "engines": {
@@ -28,6 +28,10 @@
     "./sqlite": {
       "types": "./dist/sqlite/index.d.ts",
       "default": "./dist/sqlite/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/index.d.ts",
+      "default": "./dist/cli/index.js"
     }
   },
   "files": [
@@ -86,13 +90,16 @@
   "keywords": [
     "ai",
     "ai-sdk",
-    "vercel-ai-sdk",
+    "branching",
     "chat",
-    "persistence",
-    "threads",
     "chat-history",
+    "drizzle",
+    "persistence",
+    "resumable-streams",
+    "sqlite",
+    "threads",
     "uimessage",
-    "drizzle"
+    "vercel-ai-sdk"
   ],
   "bin": {
     "ai-sdk-threads": "./dist/cli/index.js"
