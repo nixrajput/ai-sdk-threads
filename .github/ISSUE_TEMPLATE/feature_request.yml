@@ -1,0 +1,73 @@
+name: Feature Request
+description: Suggest an improvement or new feature for ai-sdk-threads
+title: '[Feature Request]: '
+labels: ['enhancement']
+assignees:
+  - nixrajput
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature!
+        Before submitting, check [existing issues](https://github.com/nixrajput/ai-sdk-threads/issues) and [discussions](https://github.com/nixrajput/ai-sdk-threads/discussions) to see if it has already been proposed.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Scope / area
+      description: Which part of ai-sdk-threads does this relate to?
+      multiple: false
+      options:
+        - ThreadStore API
+        - Database adapters (a store for another database)
+        - Schema / migrations
+        - Message conversion
+        - Types / TypeScript ergonomics
+        - Packaging / exports
+        - Docs
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem does this feature solve? Why is it needed?
+      placeholder: 'When persisting chat history, I find it hard to ...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the feature you would like to see. A sketch of the code you wish you could write helps most.
+      placeholder: |
+        ```ts
+        // the API I wish existed
+        await store.someMethod(threadId)
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you use today, or alternative approaches you have thought about?
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Any other information or references that would help.
+
+  - type: checkboxes
+    id: conduct
+    attributes:
+      label: Code of Conduct
+      description: By submitting this issue you agree to follow our [Code of Conduct](https://github.com/nixrajput/ai-sdk-threads/blob/main/CODE_OF_CONDUCT.md).
+      options:
+        - label: I agree to follow this project's Code of Conduct
+          required: true

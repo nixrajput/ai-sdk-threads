@@ -1,0 +1,35 @@
+#!/bin/sh
+# Pre-push gate. Runs lint + typecheck + tests + build before every push so
+# unformatted, lint-broken, type-broken, or failing code never reaches the remote.
+#
+# Enable once per clone:   git config core.hooksPath .githooks
+# Bypass in an emergency:  git push --no-verify
+set -eu
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
+
+if [ ! -d node_modules ]; then
+  echo "pre-push: node_modules missing - run 'npm install' first." >&2
+  exit 1
+fi
+
+echo "pre-push: running lint + typecheck + tests + build..."
+npm run lint || { echo "pre-push: biome check failed - fix it or run 'npm run format'." >&2; exit 1; }
+npm run ts:check || { echo "pre-push: type errors - fix them before pushing." >&2; exit 1; }
+# CI=true so vitest applies its CI strictness locally: obsolete snapshots and
+# stray .only fail here rather than surfacing only after a push.
+CI=true npm test || { echo "pre-push: tests failed." >&2; exit 1; }
+npm run build || { echo "pre-push: build failed (tsdown/publint/attw)." >&2; exit 1; }
+echo "pre-push: checks passed."
+
+# Inform only: this must never fail a push. `@{push}` does not resolve on a
+# branch that has never been pushed, which is the common case for a new feature
+# branch, so origin/main..HEAD is the fallback that usually runs. If neither
+# resolves (no origin remote, or its default branch isn't main), changed stays
+# empty and this deliberately degrades to the cheap size,health report below.
+changed=$(git diff --name-only '@{push}..HEAD' 2>/dev/null || git diff --name-only origin/main..HEAD 2>/dev/null || echo '')
+case "$changed" in
+  *src/*|*test/*|*bench/*|*package.json*) node scripts/report.mjs --fast ;;
+  *) node scripts/report.mjs --fast --only=size,bundle,health ;;
+esac || true
