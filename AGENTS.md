@@ -65,6 +65,7 @@ Table names are prefixed `ai_sdk_` because the tables land in the consumer's own
 - `main` is protected: PR required, squash-only merges.
 - The README documents **shipped features only** - no roadmap, no plans. Planning artifacts live outside this repo and are never committed.
 - `aliases/` holds published name reservations (`ai-threads`, `ai-sdk-persistence`). Leave them alone unless a task is explicitly about them; Biome excludes the directory for that reason.
+- Biome's `noConfusingVoidType` is off: the public callback types need `void` in a union, because `undefined` there rejects a callback that just does work and returns nothing - the common case, and the shape the AI SDK's own callbacks use.
 - Markdown prose is never hard-wrapped: one line per paragraph and per list item. Do not re-wrap these files to a column.
 
 ---
