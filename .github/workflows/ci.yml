@@ -1,8 +1,9 @@
 name: CI
 
-# `develop` is the integration branch that accumulates versions before a release.
-# It is listed here so PRs into it are gated too - release.yml deliberately stays
-# main-only, so merging here builds and tests but publishes nothing.
+# `develop` is kept in the triggers although no such branch exists right now: it is the
+# integration branch used when several versions are batched into one release, and GitHub's
+# delete-on-merge removed it when 0.1.0 shipped. Recreate it from main to batch again -
+# release.yml stays main-only, so merging into develop builds and tests but publishes nothing.
 on:
   push:
     branches: [main, develop]
