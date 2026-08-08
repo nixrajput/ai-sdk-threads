@@ -1,6 +1,7 @@
 export { orderPath } from "./chain.js";
 export type { ConvertToUIMessagesOptions } from "./convert.js";
 export { convertToUIMessages } from "./convert.js";
+export { MIGRATABLE_SDK_MAJORS, migrateParts } from "./migrate.js";
 export type {
   BranchingStore,
   CreateThreadInput,

@@ -34,7 +34,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsdown src/index.ts src/drizzle/index.ts src/handler/index.ts src/resume/index.ts src/sqlite/index.ts --format esm --dts --no-fixed-extension && publint && attw --pack . --profile esm-only",
+    "build": "tsdown src/index.ts src/drizzle/index.ts src/handler/index.ts src/resume/index.ts src/sqlite/index.ts src/cli/index.ts --format esm --dts --no-fixed-extension && publint && attw --pack . --profile esm-only",
     "test": "vitest run",
     "bench": "vitest bench --run",
     "ts:check": "tsc --noEmit && tsc --noEmit -p tsconfig.no-node.json",
@@ -93,5 +93,8 @@
     "chat-history",
     "uimessage",
     "drizzle"
-  ]
+  ],
+  "bin": {
+    "ai-sdk-threads": "./dist/cli/index.js"
+  }
 }
