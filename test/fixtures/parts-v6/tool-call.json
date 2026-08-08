@@ -1,0 +1,17 @@
+[
+  {
+    "type": "step-start"
+  },
+  {
+    "type": "tool-getWeather",
+    "toolCallId": "c1",
+    "state": "output-available",
+    "input": {
+      "city": "Berlin"
+    },
+    "output": {
+      "city": "Berlin",
+      "temp": 21
+    }
+  }
+]

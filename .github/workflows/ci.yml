@@ -1,10 +1,13 @@
 name: CI
 
+# `develop` is the integration branch that accumulates versions before a release.
+# It is listed here so PRs into it are gated too - release.yml deliberately stays
+# main-only, so merging here builds and tests but publishes nothing.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -25,12 +28,84 @@ jobs:
       - name: Install
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      # build before test: the CLI tests exercise the built bin, which must exist first.
       - name: Run available scripts
         run: |
-          for s in lint ts:check test build; do
+          for s in lint ts:check build test; do
             if jq -e --arg s "$s" '.scripts[$s]' package.json >/dev/null; then
               npm run "$s"
             fi
           done
       - name: Verify publish contents
         run: npm pack --dry-run
+
+  # package.json declares engines.node >=20, so the floor has to be exercised.
+  # Kept as its own job rather than a matrix on `build`: a matrix would rename
+  # the check to "build (24)" and break the required status check on main.
+  build-node-floor:
+    name: build (node 20 floor)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Lint, typecheck, test
+        run: |
+          for s in lint ts:check test; do
+            if jq -e --arg s "$s" '.scripts[$s]' package.json >/dev/null; then
+              npm run "$s"
+            fi
+          done
+
+  # peerDependencies accept `ai >=6 <8`, so the older major has to be exercised or that range is
+  # a guess. This caught the handler passing only ai 7's `onEnd`, which meant no reply was ever
+  # persisted on ai 6, so no reply was stored at all on the older major.
+  build-ai-6:
+    name: build (ai@6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Downgrade the AI SDK to the peer floor
+        run: npm install --no-save ai@6
+      - name: Lint, typecheck, test
+        run: |
+          node -e "console.log('ai', require('ai/package.json').version)"
+          npm run lint
+          npm run ts:check
+          npm run build
+          npm test
+
+  # Advisory only: publishes the size/bundle/bench/health/coverage numbers to the PR
+  # summary. Never gates - do not add this to the required checks.
+  report:
+    name: report (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Full report
+        env:
+          NO_COLOR: '1'
+        run: |
+          {
+            echo '## ai-sdk-threads report'
+            echo '```'
+            npm run report --silent 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

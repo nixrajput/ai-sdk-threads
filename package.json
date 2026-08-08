@@ -1,18 +1,84 @@
 {
   "name": "ai-sdk-threads",
-  "version": "0.0.1",
-  "description": "Chat thread and message persistence for the Vercel AI SDK",
+  "version": "0.1.0",
+  "description": "Chat thread and message persistence for the Vercel AI SDK - UIMessage-native schema, branching, resumable streams, Postgres and SQLite. Your database, your data.",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./index.d.ts",
-      "default": "./index.js"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./drizzle": {
+      "types": "./dist/drizzle/index.d.ts",
+      "default": "./dist/drizzle/index.js"
+    },
+    "./handler": {
+      "types": "./dist/handler/index.d.ts",
+      "default": "./dist/handler/index.js"
+    },
+    "./resume": {
+      "types": "./dist/resume/index.d.ts",
+      "default": "./dist/resume/index.js"
+    },
+    "./sqlite": {
+      "types": "./dist/sqlite/index.d.ts",
+      "default": "./dist/sqlite/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/index.d.ts",
+      "default": "./dist/cli/index.js"
     }
   },
   "files": [
-    "index.js",
-    "index.d.ts"
+    "dist"
   ],
+  "scripts": {
+    "build": "tsdown src/index.ts src/drizzle/index.ts src/handler/index.ts src/resume/index.ts src/sqlite/index.ts src/cli/index.ts src/cli/bin.ts --format esm --dts --no-fixed-extension && publint && attw --pack . --profile esm-only",
+    "test": "vitest run",
+    "bench": "vitest bench --run",
+    "ts:check": "tsc --noEmit && tsc --noEmit -p tsconfig.no-node.json",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "report": "node scripts/report.mjs",
+    "report:fast": "node scripts/report.mjs --fast",
+    "prepublishOnly": "npm run build",
+    "gate": "npm run lint && npm run ts:check && npm test && npm run build"
+  },
+  "peerDependencies": {
+    "ai": ">=6.0.0 <8",
+    "drizzle-orm": "^0.45.0",
+    "resumable-stream": "^2.2.0"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    },
+    "resumable-stream": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@biomejs/biome": "^2.5.7",
+    "@electric-sql/pglite": "^0.5.4",
+    "@libsql/client": "^0.17.4",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "ai": "^7.0.58",
+    "drizzle-orm": "^0.45.2",
+    "knip": "^6.32.0",
+    "publint": "^0.3.23",
+    "resumable-stream": "^2.2.12",
+    "tsdown": "^0.22.14",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.10",
+    "zod": "^4.4.3"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nixrajput/ai-sdk-threads.git"
@@ -24,10 +90,18 @@
   "keywords": [
     "ai",
     "ai-sdk",
-    "vercel-ai-sdk",
+    "branching",
     "chat",
+    "chat-history",
+    "drizzle",
     "persistence",
+    "resumable-streams",
+    "sqlite",
     "threads",
-    "chat-history"
-  ]
+    "uimessage",
+    "vercel-ai-sdk"
+  ],
+  "bin": {
+    "ai-sdk-threads": "./dist/cli/bin.js"
+  }
 }

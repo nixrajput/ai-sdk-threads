@@ -20,17 +20,24 @@ jobs:
       contents: write
       id-token: write # npm OIDC trusted publishing (no token secret)
     steps:
-      - uses: actions/checkout@v6
+      # Pinned by commit SHA, unlike the other workflows: this job holds
+      # id-token: write and runs npm publish, so a re-pointed tag here could
+      # publish a malicious release. Bump these by hand - nothing else will.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
       # Trusted publishing needs npm >= 11.5.1; the bundled npm may lag.
       - name: Update npm
         run: npm install -g npm@latest
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build --if-present
       - name: Read version
         id: v
         run: |
@@ -48,15 +55,38 @@ jobs:
           fi
           gh release create "$TAG" --target "${{ github.sha }}" --title "$TAG" --generate-notes
           echo "Released $TAG"
-      - name: Publish packages to npm if new
+      - name: Publish to npm if new
         run: |
-          for dir in . aliases/ai-threads aliases/ai-sdk-persistence; do
+          name=$(jq -r .name package.json)
+          version=$(jq -r .version package.json)
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already on npm - skipping."
+            exit 0
+          fi
+          # A prerelease must not take the `latest` dist-tag, or every plain
+          # `npm i ai-sdk-threads` would resolve to it.
+          case "$version" in
+            *-*) npm publish --tag next; tag=next ;;
+            *)   npm publish;            tag=latest ;;
+          esac
+          echo "Published $name@$version (dist-tag: $tag)"
+
+      # The alias packages are name reservations, not the product. Their publish is deliberately
+      # non-fatal: each needs its own trusted publisher on npmjs.com, and a missing one must not
+      # fail a release whose real package already published.
+      - name: Publish alias packages if new (advisory)
+        continue-on-error: true
+        run: |
+          for dir in aliases/ai-threads aliases/ai-sdk-persistence; do
             name=$(jq -r .name "$dir/package.json")
             version=$(jq -r .version "$dir/package.json")
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "$name@$version already on npm - skipping."
-            else
-              (cd "$dir" && npm publish)
+              continue
+            fi
+            if (cd "$dir" && npm publish); then
               echo "Published $name@$version"
+            else
+              echo "::warning::Could not publish $name@$version - publish it manually if wanted."
             fi
           done
