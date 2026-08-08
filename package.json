@@ -24,13 +24,17 @@
     "./resume": {
       "types": "./dist/resume/index.d.ts",
       "default": "./dist/resume/index.js"
+    },
+    "./sqlite": {
+      "types": "./dist/sqlite/index.d.ts",
+      "default": "./dist/sqlite/index.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsdown src/index.ts src/drizzle/index.ts src/handler/index.ts src/resume/index.ts --format esm --dts --no-fixed-extension && publint && attw --pack . --profile esm-only",
+    "build": "tsdown src/index.ts src/drizzle/index.ts src/handler/index.ts src/resume/index.ts src/sqlite/index.ts --format esm --dts --no-fixed-extension && publint && attw --pack . --profile esm-only",
     "test": "vitest run",
     "bench": "vitest bench --run",
     "ts:check": "tsc --noEmit && tsc --noEmit -p tsconfig.no-node.json",
@@ -58,6 +62,7 @@
     "@arethetypeswrong/cli": "^0.18.5",
     "@biomejs/biome": "^2.5.7",
     "@electric-sql/pglite": "^0.5.4",
+    "@libsql/client": "^0.17.4",
     "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^4.1.10",
     "ai": "^7.0.58",
