@@ -438,21 +438,21 @@ Messages have always formed a tree here - `parentId` on every row, `activeLeafId
 
 `chatHandler` wires the two common cases for you, from what the SDK client already sends:
 
-| The user does           | The client sends                                    | The handler does                                     |
-| ----------------------- | --------------------------------------------------- | ---------------------------------------------------- |
-| `regenerate()`          | `trigger: "regenerate-message"` + `messageId`        | `regenerateFrom` - the new answer becomes a sibling   |
-| Edits an earlier message | `messageId` with changed parts                      | `forkAt` - a new branch from that point               |
-| Retries unchanged       | `messageId` with identical parts                    | nothing new is stored                                 |
+| The user does            | The client sends                              | The handler does                                    |
+| ------------------------ | --------------------------------------------- | --------------------------------------------------- |
+| `regenerate()`           | `trigger: "regenerate-message"` + `messageId` | `regenerateFrom` - the new answer becomes a sibling |
+| Edits an earlier message | `messageId` with changed parts                | `forkAt` - a new branch from that point             |
+| Retries unchanged        | `messageId` with identical parts              | nothing new is stored                               |
 
 So regenerate and edit work with no extra code. The store methods are there for the UI:
 
-| Method                          | Returns                                    | Notes                                                          |
-| ------------------------------- | ------------------------------------------ | -------------------------------------------------------------- |
-| `siblingsOf(messageId)`         | `{ siblings, index }`                      | Everything sharing that message's parent, oldest first.         |
-| `setActiveLeaf(threadId, id)`   | `Promise<void>`                            | Switches which path is live. Any message in the thread will do. |
-| `getTree(threadId)`             | `Promise<StoredMessage[]>`                 | Every message, flat. Walk `parentId` to rebuild the shape.      |
-| `forkAt(messageId, messages)`   | `Promise<StoredMessage[]>`                 | New branch from that message's parent.                          |
-| `regenerateFrom(messageId)`     | `Promise<{ parentId }>`                    | Moves the leaf to the parent so you can re-answer.              |
+| Method                        | Returns                    | Notes                                                           |
+| ----------------------------- | -------------------------- | --------------------------------------------------------------- |
+| `siblingsOf(messageId)`       | `{ siblings, index }`      | Everything sharing that message's parent, oldest first.         |
+| `setActiveLeaf(threadId, id)` | `Promise<void>`            | Switches which path is live. Any message in the thread will do. |
+| `getTree(threadId)`           | `Promise<StoredMessage[]>` | Every message, flat. Walk `parentId` to rebuild the shape.      |
+| `forkAt(messageId, messages)` | `Promise<StoredMessage[]>` | New branch from that message's parent.                          |
+| `regenerateFrom(messageId)`   | `Promise<{ parentId }>`    | Moves the leaf to the parent so you can re-answer.              |
 
 Previous/next buttons over an answer's variants are `siblingsOf` plus `setActiveLeaf`:
 
