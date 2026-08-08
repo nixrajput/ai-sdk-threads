@@ -258,4 +258,95 @@ describe("chatHandler", () => {
     const notJson = new Request("https://example.test/api/chat", { method: "POST", body: "{oops" });
     expect((await handler(notJson)).status).toBe(400);
   });
+  test("a failing execute yields 500 and leaves the thread uncorrupted", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const handler = handlerWith({
+      execute: () => {
+        throw new Error("model exploded");
+      },
+    });
+
+    const response = await handler(post({ id: "t1", messages: [userMsg("m1", "hello")] }));
+    expect(response.status).toBe(500);
+
+    // The user message survives; no partial assistant row was written.
+    const loaded = await store.loadMessages("t1");
+    expect(loaded.map((m) => m.role)).toEqual(["user"]);
+    expect(errors).toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  test("onError can override the 500", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const handler = handlerWith({
+      execute: () => {
+        throw new Error("model exploded");
+      },
+      onError: (error) => new Response(`handled: ${(error as Error).message}`, { status: 503 }),
+    });
+
+    const response = await handler(post({ id: "t1", messages: [userMsg("m1", "hi")] }));
+    expect(response.status).toBe(503);
+    expect(await response.text()).toBe("handled: model exploded");
+    errors.mockRestore();
+  });
+
+  test("onError returning undefined keeps the default 500", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const handler = handlerWith({
+      execute: () => {
+        throw new Error("boom");
+      },
+      onError: () => undefined,
+    });
+    expect((await handler(post({ id: "t1", messages: [userMsg("m1", "hi")] }))).status).toBe(500);
+    errors.mockRestore();
+  });
+
+  // Throwing inside onEnd would surface during stream teardown where nothing can act on it.
+  test("a persistence failure logs instead of breaking the stream", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const brittle = {
+      ...store,
+      appendMessages: async (
+        threadId: string,
+        messages: Parameters<typeof store.appendMessages>[1],
+      ) => {
+        if (messages.some((m) => m.role === "assistant")) throw new Error("db down");
+        return store.appendMessages(threadId, messages);
+      },
+    };
+
+    const handler = handlerWith({ store: brittle });
+    const response = await handler(post({ id: "t1", messages: [userMsg("m1", "hello")] }));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("text-delta");
+
+    await until(
+      async () => (errors.mock.calls.length > 0 ? true : undefined),
+      "the persistence failure to be logged",
+    );
+    expect(errors.mock.calls.flat().join(" ")).toContain("failed to persist");
+    // The user turn is still intact.
+    expect((await store.loadMessages("t1")).map((m) => m.role)).toEqual(["user"]);
+    errors.mockRestore();
+  });
+
+  test("a title failure never breaks the response", async () => {
+    const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const handler = handlerWith({
+      generateTitle: () => {
+        throw new Error("no title for you");
+      },
+    });
+
+    const response = await handler(post({ id: "t1", messages: [userMsg("m1", "hello")] }));
+    expect(response.status).toBe(200);
+    await response.text();
+    await assistantOf("t1");
+
+    await until(async () => (warns.mock.calls.length > 0 ? true : undefined), "the title warning");
+    expect((await store.getThread("t1"))?.title).toBeNull();
+    warns.mockRestore();
+  });
 });
