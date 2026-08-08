@@ -33,6 +33,7 @@ Chat thread and message persistence for the **Vercel AI SDK** - `UIMessage` part
     - [`chatHandler(options)`](#chathandleroptions)
     - [Securing a thread](#securing-a-thread)
       - [Without the handler](#without-the-handler)
+    - [`resumableChat(options)`](#resumablechatoptions)
     - [`createThreadStore(db)`](#createthreadstoredb)
     - [Threads](#threads)
     - [Messages](#messages)
@@ -297,6 +298,71 @@ export async function POST(req: Request) {
 ```
 
 That is most of what `chatHandler` does, minus authorization, branching, and the truncated-reply handling - which is the argument for using it.
+
+### `resumableChat(options)`
+
+A reload halfway through an answer normally loses it: the stream was tied to a request that no longer exists. `resumableChat` takes every `chatHandler` option and returns the three handlers a resuming client needs.
+
+```ts
+// app/api/chat/route.ts
+export const { POST } = resumableChat({
+  store,
+  execute: ({ modelMessages }) =>
+    streamText({ model: openai("gpt-5"), messages: modelMessages }),
+});
+```
+
+```ts
+// app/api/chat/[id]/stream/route.ts - the path the SDK's client resumes from
+export const { GET, DELETE } = resumableChat({ store, execute });
+```
+
+Then turn resuming on in the client:
+
+```tsx
+const { messages, sendMessage } = useChat({
+  id,
+  messages: initialMessages,
+  resume: true,
+});
+```
+
+| Handler  | Behaviour                                                                                                            |
+| -------- | -------------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `chatHandler`, plus: records a stream id on the thread before answering, and clears it once the stream ends.         |
+| `GET`    | Replays a stream that is still in flight. **204** when there is nothing to resume, which is what the client expects. |
+| `DELETE` | Forgets the active stream, so a later `GET` answers 204. Always 204.                                                 |
+
+Two extra options on top of `chatHandler`'s:
+
+| Option          | Required | What it does                                                                                           |
+| --------------- | -------- | ------------------------------------------------------------------------------------------------------ |
+| `streamContext` | no       | Where in-flight streams live. Defaults to in-process - see below.                                      |
+| `threadIdFrom`  | no       | How to read the thread id from a GET/DELETE. Defaults to the `<threadId>/stream` path the client uses. |
+
+**The default context is in-process, and that is a real limitation.** It resumes only within the instance that served the POST, so on more than one instance (or any serverless deployment) a resume can land on a process that never saw the stream and gets a 204. Pass a Redis-backed context for those:
+
+```ts
+import { createResumableStreamContext } from "resumable-stream/ioredis";
+
+export const { POST, GET, DELETE } = resumableChat({
+  store,
+  execute,
+  streamContext: createResumableStreamContext({ waitUntil: null }),
+});
+```
+
+`resumable-stream` is an optional peer, so add it when you use this module: `npm install resumable-stream`. Redis on top of that is your choice, not this package's - `resumable-stream` itself ships with no dependencies.
+
+The default in-memory context is a single **process-wide** instance, so splitting POST and GET across two route files works. It still cannot cross processes: on more than one instance, a resume that lands elsewhere answers 204.
+
+`DELETE` forgets a stream rather than killing it: `resumable-stream` exposes no abort, so the generation finishes server-side (and is still persisted) but stops being resumable. That is what a stop button wants in practice - the answer is saved, the client stops following it.
+
+**Migration.** This version adds one nullable column:
+
+```sql
+ALTER TABLE ai_sdk_threads ADD COLUMN active_stream_id text;
+```
 
 ### `createThreadStore(db)`
 
