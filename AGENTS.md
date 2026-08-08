@@ -53,7 +53,7 @@ Table names are prefixed `ai_sdk_` because the tables land in the consumer's own
 
 ### The checks
 
-`npm run lint`, `npm run ts:check`, `npm test`, `npm run build`. CI runs exactly these four in the `build` job, and repeats lint/typecheck/test on the Node 20 floor in a second job (tsdown itself needs >=22.18, so the floor job skips `build`). `.githooks/pre-push` runs them too (`git config core.hooksPath .githooks`).
+`npm run gate` runs all four: `npm run lint`, `npm run ts:check`, `npm test`, `npm run build`. Use it, and trust the **exit code** - biome's failure output ends in blank lines, so piping any of these through `tail` makes a failure look exactly like a pass. CI runs the same four in the `build` job, and repeats lint/typecheck/test on the Node 20 floor in a second job (tsdown itself needs >=22.18, so the floor job skips `build`). `.githooks/pre-push` runs them too (`git config core.hooksPath .githooks`).
 
 `ts:check` runs `tsc` twice: once normally, once with `tsconfig.no-node.json`, which typechecks `src/` with no Node types at all. AI SDK routes commonly run on edge runtimes, so a `process` or `Buffer` reference anywhere in `src/` is a bug and fails there. If a file ever genuinely needs Node, exempt it deliberately rather than deleting the guard.
 

@@ -99,7 +99,7 @@ describe("setActiveLeaf", () => {
 
 describe("siblingsOf", () => {
   test("reports both branches at a fork point, with the index", async () => {
-    const threadId = await threeTurnThread();
+    await threeTurnThread();
     await store.forkAt("m2", [msg("m2b", "two-edited")]);
 
     const forOriginal = await store.siblingsOf("m2");
@@ -115,7 +115,7 @@ describe("siblingsOf", () => {
     const { siblings, index } = await store.siblingsOf("a1");
     expect(siblings.map((m) => m.id)).toEqual(["a1"]);
     expect(index).toBe(0);
-    expect(threadId).toBeTruthy();
+    expect(await store.getTree(threadId)).toHaveLength(3);
   });
 
   // parent_id IS NULL matches the roots of every thread, so this must be thread-scoped.
@@ -127,7 +127,7 @@ describe("siblingsOf", () => {
     const { siblings } = await store.siblingsOf("m1");
     expect(siblings.map((m) => m.id)).toEqual(["m1"]);
     expect(await store.siblingsOf("x1")).toMatchObject({ index: 0 });
-    expect(threadId).toBeTruthy();
+    expect(await store.getTree(threadId)).toHaveLength(3);
   });
 });
 
