@@ -69,6 +69,10 @@ Table names are prefixed `ai_sdk_` because the tables land in the consumer's own
 
 Both adapters share `src/store-core.ts` and each writes its own queries; `test/parity.test.ts` runs the whole contract against both, which is what stops them drifting. SQLite has no `SELECT ... FOR UPDATE` (a write transaction already holds the database) and needs `PRAGMA foreign_keys = ON` or the cascade silently does nothing.
 
+`src/cli/bin.ts` is the executable and `src/cli/index.ts` is what consumers import - keep them apart, and keep index.ts free of Node APIs. The bin's self-exec guard resolves **realpaths on both sides**: npm installs it as a symlink and Node loads the module through the target, so any string comparison silently makes the whole CLI a no-op that exits 0. `test/cli.test.ts` runs it through a symlink for exactly that reason.
+
+The SQLite adapter needs an **async** driver (libsql). Writes use interactive transactions with an async callback: better-sqlite3 rejects it, Bun's driver does not await it, and D1 has no interactive transactions - on those, atomicity would be lost silently rather than reported.
+
 CI runs the suite against the **ai 6 floor** as well as 7, because `peerDependencies` claim `>=6 <8`. That job is not ceremony: it caught the handler passing only ai 7's `onEnd`, so no reply was ever persisted on ai 6. Both `onEnd` and `onFinish` are passed now, guarded so only one fires. The test model rig in `test/model.ts` detects which provider spec the installed major ships - keep it that way or the v6 job stops exercising the streaming code.
 
 Stored `UIMessage.parts` are identical across ai 5, 6 and 7. That is measured: `test/fixtures/parts-v{5,6}` hold real captured payloads and `test/compat.test.ts` asserts the current SDK still reads them. `migrateParts` is therefore a pass-through today, and those fixtures are the tripwire that tells you when it stops being one.

@@ -19,6 +19,17 @@ export const asMetadata = (value: unknown) => value as Record<string, unknown> |
 const isPlainObject = (value: unknown) =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+/**
+ * Thread metadata needs the same guard message metadata has: the column is json, so a bare string
+ * or number stores happily and then comes back typed as an object to every reader.
+ */
+export function assertThreadMetadata(value: unknown, threadId?: string): void {
+  if (value != null && !isPlainObject(value)) {
+    const where = threadId === undefined ? "" : ` on thread "${threadId}"`;
+    throw new Error(`ai-sdk-threads: thread metadata${where} must be an object`);
+  }
+}
+
 /** A caller-supplied limit reaches SQL, so 0, a fraction, and a huge value all need bounding. */
 export function pageLimit(requested: number | undefined): number {
   if (requested === undefined || !Number.isFinite(requested)) return DEFAULT_LIMIT;

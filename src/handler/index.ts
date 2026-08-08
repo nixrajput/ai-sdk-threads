@@ -124,7 +124,6 @@ export function chatHandler(options: ChatHandlerOptions) {
       let persisted = false;
       const persistReply = async ({ responseMessage }: { responseMessage: UIMessage }) => {
         if (persisted) return;
-        persisted = true;
         // A disconnect leaves the reply empty or half-streamed. Storing it would render as
         // forever-in-progress and feed a half-sentence to the model next turn.
         if (!isComplete(responseMessage)) {
@@ -134,6 +133,9 @@ export function chatHandler(options: ChatHandlerOptions) {
           );
           return;
         }
+        // Latched only once a complete reply is in hand: closing it earlier meant an incomplete
+        // first callback permanently blocked a later complete one from being stored.
+        persisted = true;
         try {
           await store.appendMessages(threadId, [responseMessage]);
         } catch (error) {

@@ -82,7 +82,7 @@ describe("migrate", () => {
     expect(report.scanned).toEqual({ 5: 1, 6: 1 });
     const rows = await ctx.db.select().from(messages);
     expect(rows.map((row) => row.sdkVersion).sort()).toEqual([5, 6]);
-    expect(formatMigrateReport(report)).toContain("Dry run");
+    expect(formatMigrateReport(report)).toContain("Dry run: 2");
   });
 
   test("reports a row the current SDK cannot read instead of restamping it", async () => {
@@ -170,6 +170,32 @@ describe("import-vercel", () => {
     expect(await store.getThread("c1")).toBeNull();
   });
 
+  test("stamps imported rows with the current major, not the source major", async () => {
+    await seedTemplate();
+    await importVercelChat(ctx.db, { sourceSdkVersion: 5 });
+    const rows = await ctx.db.select().from(messages);
+    // Stamped current, so a later `migrate` run cannot mistake them for un-migrated data.
+    expect(rows.every((row) => row.sdkVersion === 7)).toBe(true);
+    expect((await migrateDatabase(ctx.db)).scanned).toEqual({});
+  });
+
+  test("skips a row the current SDK cannot read instead of breaking the thread", async () => {
+    await seedTemplate();
+    await ctx.db.execute(sql`
+      INSERT INTO "Message_v2" VALUES
+        ('bad1', 'c1', 'user', '[{"type":"nonsense"}]'::jsonb, NULL, '2026-01-01T10:00:09Z'),
+        ('bad2', 'c1', 'tool', '[]'::jsonb, NULL, '2026-01-01T10:00:10Z')`);
+
+    const report = await importVercelChat(ctx.db);
+    expect(report.skippedMessages).toHaveLength(2);
+    expect(report.skippedMessages.map((m) => m.id).sort()).toEqual(["bad1", "bad2"]);
+
+    // The imported thread is readable, which is the point of validating before writing.
+    const loaded = await store.loadMessages("c1");
+    expect(loaded.map((m) => m.id)).toEqual(["vm1", "vm2"]);
+    expect(formatImportReport(report)).toContain("cannot read");
+  });
+
   test("a rerun skips threads that already exist", async () => {
     await seedTemplate();
     await importVercelChat(ctx.db);
@@ -178,5 +204,55 @@ describe("import-vercel", () => {
     // Still exactly the original rows: no duplicates.
     expect(await ctx.db.select().from(messages)).toHaveLength(3);
     expect(formatImportReport(second)).toContain("Skipped 2");
+  });
+});
+
+// Review finding: the bin's self-exec guard compared string suffixes, so when npm installs it as a
+// symlink in node_modules/.bin the published CLI ran nothing and exited 0.
+describe("the bin actually runs", () => {
+  const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "cli", "bin.js");
+  const run = async (args: string[], cwd?: string) => {
+    const { execFile } = await import("node:child_process");
+    return new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+      execFile(process.execPath, [bin, ...args], { cwd }, (error, stdout, stderr) => {
+        const code = error && "code" in error ? Number(error.code) : 0;
+        resolve({ code, stdout, stderr });
+      });
+    });
+  };
+
+  test("prints usage and exits 0 for --help", async () => {
+    const result = await run(["--help"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("ai-sdk-threads <command>");
+  });
+
+  test("still runs when invoked through a node_modules/.bin style symlink", async () => {
+    const { mkdtemp, symlink, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const dir = await mkdtemp(join(tmpdir(), "ai-sdk-threads-bin-"));
+    const link = join(dir, "ai-sdk-threads");
+    try {
+      await symlink(bin, link);
+      const { execFile } = await import("node:child_process");
+      const result = await new Promise<{ code: number; stdout: string }>((resolve) => {
+        execFile(process.execPath, [link, "--help"], (error, stdout) => {
+          resolve({ code: error && "code" in error ? Number(error.code) : 0, stdout });
+        });
+      });
+      // The whole point: through a symlink it must still do its job, not silently exit 0.
+      expect(result.stdout).toContain("ai-sdk-threads <command>");
+      expect(result.code).toBe(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    [[], "no command"],
+    [["migrate"], "no --database-url"],
+    [["nope", "--database-url", "x"], "unknown command"],
+  ])("exits 1 on %s", async (args) => {
+    expect((await run(args as string[])).code).toBe(1);
   });
 });

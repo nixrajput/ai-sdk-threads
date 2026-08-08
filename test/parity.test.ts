@@ -103,9 +103,11 @@ describe.each(adapters)("ThreadStore contract (%s)", (_name, makeHarness) => {
     expect(loaded.map((m) => m.id)).toEqual(["m1", "m2"]);
     expect(loaded[0]?.parts).toEqual([{ type: "text", text: "one" }]);
 
+    // Asserted on the rows themselves: recreating the thread and checking loadMessages is empty
+    // passes whether or not the messages were actually deleted, because the new leaf is null.
     await store.deleteThread(thread.id);
     const fresh = await store.createThread({ id: thread.id });
-    expect(await store.loadMessages(fresh.id)).toEqual([]);
+    expect(await store.getTree(fresh.id)).toEqual([]);
   });
 
   test("a batch is written as one chain in order", async () => {

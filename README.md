@@ -487,7 +487,7 @@ Walks `parentId` links from a leaf back to the root and returns the rows oldest 
 
 ### SQLite
 
-The same contract, over any drizzle SQLite database - libsql, better-sqlite3, Bun's, or Cloudflare D1:
+The same contract, over a drizzle SQLite database on an **async** driver - libsql is what CI runs:
 
 ```ts
 import { createThreadStore } from "ai-sdk-threads/sqlite";
@@ -501,7 +501,9 @@ const store = createThreadStore(drizzle(client));
 export { messages, threads } from "ai-sdk-threads/sqlite";
 ```
 
-Every method behaves identically; a parity suite runs the whole contract against both adapters, so the two cannot drift. Two column types necessarily differ: `parts` and `metadata` are `text` with drizzle's `json` mode instead of `jsonb`, and timestamps are integer milliseconds instead of `timestamptz(3)` - the same precision the keyset cursor needs.
+Every method behaves identically; a parity suite runs the whole contract against both adapters, so the two cannot drift.
+
+**Async drivers only.** Writes use interactive transactions with an async callback, which `better-sqlite3` rejects outright and Bun's driver does not await - and Cloudflare D1 has no interactive transactions at all. libsql (local file or remote) is the supported and tested driver; on a sync driver, atomicity would be silently lost rather than reported. Two column types necessarily differ: `parts` and `metadata` are `text` with drizzle's `json` mode instead of `jsonb`, and timestamps are integer milliseconds instead of `timestamptz(3)` - the same precision the keyset cursor needs.
 
 One thing SQLite needs that Postgres does not: **`PRAGMA foreign_keys = ON`**, or deleting a thread will not delete its messages. SQLite defaults it off per connection.
 

@@ -1,5 +1,5 @@
 import { safeValidateUIMessages } from "ai";
-import { eq, lt } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import { messages } from "../drizzle/schema.js";
 import type { ThreadStoreDatabase } from "../drizzle/store.js";
 import { migrateParts } from "../migrate.js";
@@ -9,6 +9,8 @@ export interface MigrateReport {
   /** How many rows were written by each older major. */
   scanned: Record<number, number>;
   updated: number;
+  /** How many rows a real run would write; excludes the unreadable ones. */
+  pending: number;
   /** Rows the current SDK cannot read even after migrating, by message id. */
   unreadable: { id: string; reason: string }[];
   dryRun: boolean;
@@ -27,9 +29,9 @@ export async function migrateDatabase(
   const dryRun = options.dryRun ?? false;
   const rows = await db.select().from(messages).where(lt(messages.sdkVersion, CURRENT_SDK_MAJOR));
 
-  const report: MigrateReport = { scanned: {}, updated: 0, unreadable: [], dryRun };
+  const report: MigrateReport = { scanned: {}, updated: 0, pending: 0, unreadable: [], dryRun };
 
-  const pending: { id: string; parts: unknown[] }[] = [];
+  const pending: { id: string; parts: unknown[]; changed: boolean }[] = [];
   for (const row of rows) {
     report.scanned[row.sdkVersion] = (report.scanned[row.sdkVersion] ?? 0) + 1;
 
@@ -53,19 +55,26 @@ export async function migrateDatabase(
       report.unreadable.push({ id: row.id, reason: validated.error.message });
       continue;
     }
-    pending.push({ id: row.id, parts });
+    pending.push({ id: row.id, parts, changed: parts !== row.parts });
   }
 
   if (!dryRun && pending.length > 0) {
     await db.transaction(async (tx) => {
       for (const row of pending) {
+        // `parts` is written only when the migration actually changed it. Rewriting an unchanged
+        // array would clobber a concurrent edit with content read before that edit happened, and
+        // the sdkVersion guard leaves alone a row another run already migrated.
+        const patch = row.changed
+          ? { parts: row.parts, sdkVersion: CURRENT_SDK_MAJOR }
+          : { sdkVersion: CURRENT_SDK_MAJOR };
         await tx
           .update(messages)
-          .set({ parts: row.parts, sdkVersion: CURRENT_SDK_MAJOR })
-          .where(eq(messages.id, row.id));
+          .set(patch)
+          .where(and(eq(messages.id, row.id), lt(messages.sdkVersion, CURRENT_SDK_MAJOR)));
       }
     });
   }
+  report.pending = pending.length;
   report.updated = dryRun ? 0 : pending.length;
   return report;
 }
@@ -81,7 +90,7 @@ export function formatMigrateReport(report: MigrateReport): string {
     }
     lines.push(
       report.dryRun
-        ? `Dry run: ${scanned.reduce((n, [, c]) => n + c, 0)} would be restamped as ai ${CURRENT_SDK_MAJOR}.`
+        ? `Dry run: ${report.pending} would be restamped as ai ${CURRENT_SDK_MAJOR}.`
         : `Restamped ${report.updated} message${report.updated === 1 ? "" : "s"} as ai ${CURRENT_SDK_MAJOR}.`,
     );
   }

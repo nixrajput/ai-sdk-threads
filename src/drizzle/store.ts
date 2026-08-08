@@ -3,8 +3,10 @@ import { generateId, validateUIMessages } from "ai";
 import { and, asc, desc, eq, isNull, lt, ne, or } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { orderPath } from "../chain.js";
+import { migrateParts } from "../migrate.js";
 import {
   asMetadata,
+  assertThreadMetadata,
   chainRows,
   decodeCursor,
   encodeCursor,
@@ -104,6 +106,7 @@ export function createThreadStore(
 
   return {
     async createThread(input: CreateThreadInput = {}): Promise<Thread> {
+      assertThreadMetadata(input.metadata);
       const [row] = await db
         .insert(threads)
         .values({
@@ -151,6 +154,7 @@ export function createThreadStore(
     },
 
     async updateThread(id: string, patch: UpdateThreadPatch): Promise<Thread> {
+      assertThreadMetadata(patch.metadata, id);
       const [row] = await db
         .update(threads)
         .set({ ...patch, updatedAt: new Date() })
@@ -350,10 +354,13 @@ export function createThreadStore(
       if (path.length === 0) return [];
 
       return validateUIMessages({
+        // Parts pass through migrateParts on the way out, keyed by the major that wrote each row.
+        // It is a no-op today; wiring it here means a thread mixing majors stays readable through
+        // the supported API rather than only for consumers who query the tables themselves.
         messages: path.map((row) => ({
           id: row.id,
           role: row.role,
-          parts: row.parts,
+          parts: migrateParts(row.parts, row.sdkVersion),
           ...(row.metadata === null ? {} : { metadata: row.metadata }),
         })),
       });
