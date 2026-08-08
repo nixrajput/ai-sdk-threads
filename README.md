@@ -281,7 +281,8 @@ A reload halfway through an answer normally loses it: the stream was tied to a r
 // app/api/chat/route.ts
 export const { POST } = resumableChat({
   store,
-  execute: ({ modelMessages }) => streamText({ model: openai("gpt-5"), messages: modelMessages }),
+  execute: ({ modelMessages }) =>
+    streamText({ model: openai("gpt-5"), messages: modelMessages }),
 });
 ```
 
@@ -293,21 +294,25 @@ export const { GET, DELETE } = resumableChat({ store, execute });
 Then turn resuming on in the client:
 
 ```tsx
-const { messages, sendMessage } = useChat({ id, messages: initialMessages, resume: true });
+const { messages, sendMessage } = useChat({
+  id,
+  messages: initialMessages,
+  resume: true,
+});
 ```
 
-| Handler  | Behaviour                                                                                                    |
-| -------- | ------------------------------------------------------------------------------------------------------------ |
-| `POST`   | `chatHandler`, plus: records a stream id on the thread before answering, and clears it once the stream ends.   |
+| Handler  | Behaviour                                                                                                            |
+| -------- | -------------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `chatHandler`, plus: records a stream id on the thread before answering, and clears it once the stream ends.         |
 | `GET`    | Replays a stream that is still in flight. **204** when there is nothing to resume, which is what the client expects. |
-| `DELETE` | Forgets the active stream, so a later `GET` answers 204. Always 204.                                          |
+| `DELETE` | Forgets the active stream, so a later `GET` answers 204. Always 204.                                                 |
 
 Two extra options on top of `chatHandler`'s:
 
-| Option          | Required | What it does                                                                                          |
-| --------------- | -------- | ----------------------------------------------------------------------------------------------------- |
-| `streamContext` | no       | Where in-flight streams live. Defaults to in-process - see below.                                       |
-| `threadIdFrom`  | no       | How to read the thread id from a GET/DELETE. Defaults to the `<threadId>/stream` path the client uses.  |
+| Option          | Required | What it does                                                                                           |
+| --------------- | -------- | ------------------------------------------------------------------------------------------------------ |
+| `streamContext` | no       | Where in-flight streams live. Defaults to in-process - see below.                                      |
+| `threadIdFrom`  | no       | How to read the thread id from a GET/DELETE. Defaults to the `<threadId>/stream` path the client uses. |
 
 **The default context is in-process, and that is a real limitation.** It resumes only within the instance that served the POST, so on more than one instance (or any serverless deployment) a resume can land on a process that never saw the stream and gets a 204. Pass a Redis-backed context for those:
 
@@ -433,17 +438,17 @@ Walks `parentId` links from a leaf back to the root and returns the rows oldest 
 import { messages, threads } from "ai-sdk-threads/drizzle";
 ```
 
-| `ai_sdk_threads` | Type             | Notes                                         |
-| ---------------- | ---------------- | --------------------------------------------- |
-| `id`             | `text` PK        |                                               |
-| `user_id`        | `text`           | Indexed. Nullable for anonymous chats.        |
-| `title`          | `text`           |                                               |
-| `visibility`     | `text`           | `'private'` (default) or `'public'`.          |
-| `active_leaf_id` | `text`           | The last message on the live path.            |
-| `active_stream_id` | `text`         | Set while a reply streams; `resumableChat` resumes from it. |
-| `metadata`       | `jsonb`          | Yours to use.                                 |
-| `created_at`     | `timestamptz(3)` | Millisecond precision on purpose - see below. |
-| `updated_at`     | `timestamptz(3)` | Moved by `appendMessages` and `updateThread`. |
+| `ai_sdk_threads`   | Type             | Notes                                                       |
+| ------------------ | ---------------- | ----------------------------------------------------------- |
+| `id`               | `text` PK        |                                                             |
+| `user_id`          | `text`           | Indexed. Nullable for anonymous chats.                      |
+| `title`            | `text`           |                                                             |
+| `visibility`       | `text`           | `'private'` (default) or `'public'`.                        |
+| `active_leaf_id`   | `text`           | The last message on the live path.                          |
+| `active_stream_id` | `text`           | Set while a reply streams; `resumableChat` resumes from it. |
+| `metadata`         | `jsonb`          | Yours to use.                                               |
+| `created_at`       | `timestamptz(3)` | Millisecond precision on purpose - see below.               |
+| `updated_at`       | `timestamptz(3)` | Moved by `appendMessages` and `updateThread`.               |
 
 | `ai_sdk_messages` | Type             | Notes                                   |
 | ----------------- | ---------------- | --------------------------------------- |
