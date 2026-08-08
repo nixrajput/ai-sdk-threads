@@ -64,7 +64,7 @@ ai-sdk-threads is those two tables and a small typed store over them. Message `p
 - **Postgres or SQLite** - the same `ThreadStore` contract over either, verified by one parity suite run against both.
 - **Branching** - edit or regenerate a message and the old version survives as a sibling, the way ChatGPT does it ([vercel/ai#2929][issue2929]).
 - **Resumable streams** - `resumableChat` ships the POST/GET/DELETE trio, so a reload mid-answer picks the stream back up.
-- **`UIMessage`-native** - `parts` and `metadata` stored verbatim as `jsonb`, never flattened to text.
+- **`UIMessage`-native** - `parts` and `metadata` stored verbatim (`jsonb` on Postgres, text JSON on SQLite), never flattened to a content string.
 - **A drizzle/Postgres adapter** - works with node-postgres, postgres.js, Neon, Vercel Postgres, or PGlite.
 - **Your migrations** - the tables are exported as drizzle objects and land in your own schema and migration history.
 - **Keyset pagination** - `listThreads` pages by cursor, not `OFFSET`, so page 400 costs what page 1 does.
@@ -242,7 +242,9 @@ export const POST = chatHandler({
 });
 ```
 
-Only new `user` messages are accepted. A request introducing a fresh `system` or `assistant` message is rejected with 400, so a client cannot forge context that every later turn on the thread would then inherit.
+Only `user` messages are ever stored from a request. A `system` or `assistant` message the client sends is **dropped** - never persisted, so it cannot forge context that later turns inherit - but not rejected, because a client legitimately holds an assistant reply that was truncated and never stored, and reposts it on every turn from then on. Rejecting those would make the thread permanently unusable.
+
+Editing is likewise restricted to the client's own turns: `messageId` pointing at an assistant or system message answers 400, so a client cannot rewrite the model's words into its own.
 
 Both wire shapes work unchanged. The default transport posts the whole conversation each turn; a custom `prepareSendMessagesRequest` that posts only `{ id, message }` works too. The handler stores only messages it has not already seen, so neither shape duplicates rows.
 

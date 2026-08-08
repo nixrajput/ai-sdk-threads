@@ -59,8 +59,9 @@ const toStoredMessage = (row: typeof messages.$inferSelect): StoredMessage => ({
 });
 
 /**
- * SQLite has no `SELECT ... FOR UPDATE`; a write transaction already holds the database, so the
- * read that Postgres has to lock is just a read here.
+ * SQLite has no `SELECT ... FOR UPDATE` and needs none: libsql's default transaction mode is
+ * "write", which emits BEGIN IMMEDIATE and takes the write lock up front, serialising concurrent
+ * appends the way Postgres's FOR UPDATE does. On a driver that begins deferred, this would race.
  */
 async function readThread(db: SqliteThreadStoreDatabase, threadId: string) {
   const [thread] = await db

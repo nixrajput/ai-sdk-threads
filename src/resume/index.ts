@@ -52,7 +52,7 @@ async function drain(stream: ReadableStream<string>): Promise<void> {
  */
 export function createMemoryStreamContext(): ResumableStreamContext {
   const values = new Map<string, { value: string; expiresAt: number }>();
-  const channels = new Map<string, ((message: string) => void)[]>();
+  const channels = new Map<string, (message: string) => void>();
 
   const read = (key: string) => {
     const entry = values.get(key);
@@ -65,23 +65,29 @@ export function createMemoryStreamContext(): ResumableStreamContext {
     return entry.value;
   };
 
+  // One callback per channel, matching resumable-stream's own ioredis adapter: appending would
+  // diverge from that contract, and a single unsubscribe would then kill another listener.
   const subscriber: Subscriber = {
     connect: async () => {},
-    subscribe: async (channel, callback) => {
-      channels.set(channel, [...(channels.get(channel) ?? []), callback]);
-    },
+    subscribe: async (channel, callback) => void channels.set(channel, callback),
     unsubscribe: async (channel) => void channels.delete(channel),
   };
 
   const publisher: Publisher = {
     connect: async () => {},
     publish: async (channel, message) => {
-      for (const callback of channels.get(channel) ?? []) callback(message);
+      channels.get(channel)?.(message);
       return 1;
     },
     set: async (key, value, options) => {
       const ttlSeconds = options?.EX ?? 24 * 60 * 60;
-      values.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
+      const now = Date.now();
+      // Swept here because a finished stream's sentinel is never read again, and read() only
+      // evicts on a hit - without this the map grows by one entry per generation, forever.
+      if (values.size > 256) {
+        for (const [k, entry] of values) if (entry.expiresAt <= now) values.delete(k);
+      }
+      values.set(key, { value, expiresAt: now + ttlSeconds * 1000 });
       return "OK";
     },
     get: async (key) => read(key),
