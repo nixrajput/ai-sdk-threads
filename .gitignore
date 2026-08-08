@@ -2,3 +2,11 @@ node_modules/
 dist/
 *.log
 .DS_Store
+coverage/
+*.tsbuildinfo
+
+# Claude Code machine-local settings
+.claude/settings.local.json
+
+# subagent-driven-development scratch
+.superpowers/

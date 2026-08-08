@@ -1,0 +1,11 @@
+// The package targets AI SDK routes, which commonly run on edge runtimes. No file
+// in src/ may reach for an ambient Node global, so src/ is typechecked a second
+// time with no Node types at all and a `process`/`Buffer` slip fails here rather
+// than at a consumer whose runtime has neither.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": []
+  },
+  "include": ["src"]
+}

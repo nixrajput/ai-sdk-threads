@@ -3,16 +3,59 @@
   "version": "0.0.1",
   "description": "Chat thread and message persistence for the Vercel AI SDK",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./index.d.ts",
-      "default": "./index.js"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./drizzle": {
+      "types": "./dist/drizzle/index.d.ts",
+      "default": "./dist/drizzle/index.js"
     }
   },
   "files": [
-    "index.js",
-    "index.d.ts"
+    "dist"
   ],
+  "scripts": {
+    "build": "tsdown src/index.ts src/drizzle/index.ts --format esm --dts --no-fixed-extension && publint && attw --pack . --profile esm-only",
+    "test": "vitest run",
+    "bench": "vitest bench --run",
+    "ts:check": "tsc --noEmit && tsc --noEmit -p tsconfig.no-node.json",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "report": "node scripts/report.mjs",
+    "report:fast": "node scripts/report.mjs --fast",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "ai": ">=6.0.0 <8",
+    "drizzle-orm": "^0.45.0"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@biomejs/biome": "^2.5.7",
+    "@electric-sql/pglite": "^0.5.4",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "ai": "^7.0.58",
+    "drizzle-orm": "^0.45.2",
+    "knip": "^6.32.0",
+    "publint": "^0.3.23",
+    "tsdown": "^0.22.14",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.10",
+    "zod": "^4.4.3"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nixrajput/ai-sdk-threads.git"
