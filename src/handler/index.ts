@@ -1,6 +1,7 @@
 import type { ModelMessage, UIMessage } from "ai";
 import { convertToModelMessages, generateId, safeValidateUIMessages } from "ai";
-import type { Thread, ThreadStore } from "../types.js";
+import type { BranchingStore, Thread, ThreadStore } from "../types.js";
+import type { ParsedChatBody } from "./body.js";
 import { ChatBodyError, parseChatBody } from "./body.js";
 
 export type { ChatTrigger, ParsedChatBody } from "./body.js";
@@ -32,7 +33,8 @@ export interface ChatThreadScope {
 }
 
 export interface ChatHandlerOptions {
-  store: ThreadStore;
+  /** Branching methods are optional: without them a regenerate re-answers instead of forking. */
+  store: ThreadStore & Partial<BranchingStore>;
   execute: (ctx: ChatExecuteContext) => ChatStreamResult | Promise<ChatStreamResult>;
   createThread?: (ctx: {
     threadId: string;
@@ -90,9 +92,8 @@ export function chatHandler(options: ChatHandlerOptions) {
         throw new ChatBodyError("request body must be valid JSON");
       }
 
-      // `trigger` and `messageId` are parsed but not acted on until branching lands: a
-      // regenerate re-answers instead of forking, and an edit resend is treated as nothing new.
-      const { threadId, incoming } = parseChatBody(raw);
+      const parsed = parseChatBody(raw);
+      const { threadId } = parsed;
 
       const thread = await loadOrCreateThread(options, threadId, request);
       if (thread === FORBIDDEN) return text("Forbidden", 403);
@@ -101,18 +102,7 @@ export function chatHandler(options: ChatHandlerOptions) {
       const needsTitle =
         options.generateTitle !== undefined && isFirstTurn && thread.title === null;
 
-      // The default transport reposts the whole conversation every turn, so anything already
-      // stored has to be dropped here or it collides on the message primary key.
-      const existing = await store.loadMessages(threadId);
-      const existingIds = new Set(existing.map((message) => message.id));
-      const fresh = await acceptable(incoming.filter((m) => !existingIds.has(m.id)));
-
-      // Stored before streaming so a mid-stream crash cannot lose the user's message.
-      if (fresh.length > 0) await store.appendMessages(threadId, fresh);
-
-      // Assembled rather than re-read: both halves are already validated, and re-loading would
-      // rescan and revalidate the entire thread on every turn.
-      const uiMessages = [...existing, ...fresh];
+      const uiMessages = await resolveHistory(options, parsed);
       const modelMessages = await convertToModelMessages(uiMessages);
 
       const result = await options.execute({ threadId, uiMessages, modelMessages, request });
@@ -168,6 +158,67 @@ export function chatHandler(options: ChatHandlerOptions) {
       return text("Internal Server Error", 500);
     }
   };
+}
+
+/** Parts compared as stored: an edit resend reuses the message id but changes the content. */
+const sameParts = (a: UIMessage, b: UIMessage) =>
+  JSON.stringify(a.parts) === JSON.stringify(b.parts);
+
+/**
+ * Applies what this request means to the thread and returns the history to answer from. The
+ * three shapes the SDK client can send are told apart by `trigger` plus `messageId`: a regenerate
+ * names the message to redo, an edit reuses an existing id with new parts, and anything else is
+ * a new turn. A retry - same id, same parts - must add nothing.
+ */
+async function resolveHistory(
+  options: ChatHandlerOptions,
+  parsed: ParsedChatBody,
+): Promise<UIMessage[]> {
+  const { store } = options;
+  const { threadId, incoming, trigger, messageId } = parsed;
+  const existing = await store.loadMessages(threadId);
+
+  if (trigger === "regenerate-message" && messageId !== undefined) {
+    if (!store.regenerateFrom) {
+      console.warn(
+        "ai-sdk-threads: this store cannot branch, so the regenerate is answered as a new turn",
+      );
+      return existing;
+    }
+    // Drops the leaf back to the target's parent; the fresh answer lands as its sibling.
+    await store.regenerateFrom(messageId);
+    return store.loadMessages(threadId);
+  }
+
+  const edited =
+    messageId === undefined ? undefined : incoming.find((message) => message.id === messageId);
+  const stored =
+    messageId === undefined ? undefined : existing.find((message) => message.id === messageId);
+
+  if (edited && stored && !sameParts(edited, stored) && store.forkAt) {
+    const [replacement] = await acceptable([edited]);
+    if (replacement) {
+      // A fresh id, because the client reuses the edited message's id and the original row still
+      // holds it - the old wording is kept as a sibling rather than overwritten.
+      await store.forkAt(messageId as string, [{ ...replacement, id: generateId() }]);
+      return store.loadMessages(threadId);
+    }
+  }
+
+  // The default transport reposts the whole conversation every turn, so anything already stored
+  // has to be dropped here or it collides on the message primary key. Matched against the whole
+  // tree, not the live path: after an edit the client keeps resending the id it knows, which now
+  // belongs to a row sitting on an abandoned branch.
+  const known = store.getTree ? await store.getTree(threadId) : existing;
+  const existingIds = new Set(known.map((message) => message.id));
+  const fresh = await acceptable(incoming.filter((message) => !existingIds.has(message.id)));
+
+  // Stored before streaming so a mid-stream crash cannot lose the user's message.
+  if (fresh.length > 0) await store.appendMessages(threadId, fresh);
+
+  // Assembled rather than re-read: both halves are already validated, and re-loading would
+  // rescan and revalidate the entire thread on every turn.
+  return [...existing, ...fresh];
 }
 
 /**

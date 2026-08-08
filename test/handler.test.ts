@@ -473,3 +473,164 @@ describe("chatHandler", () => {
     ).toBe(400);
   });
 });
+
+// v0.4: the wire shapes the SDK client actually sends for regenerate and edit, established by
+// reading AbstractChat.regenerate and sendMessage in the installed ai package.
+describe("chatHandler branching", () => {
+  let ctx2: Awaited<ReturnType<typeof makeDb>>;
+  let branchStore: ReturnType<typeof createThreadStore>;
+
+  beforeEach(async () => {
+    ctx2 = await makeDb();
+    branchStore = createThreadStore(ctx2.db);
+  });
+  afterEach(() => ctx2.close());
+
+  const handlerFor = (reply: string) =>
+    chatHandler({
+      store: branchStore,
+      execute: ({ modelMessages }) =>
+        streamText({ model: textModel([reply]), messages: modelMessages }),
+    });
+
+  const settled = (threadId: string, count: number) =>
+    until(async () => {
+      const loaded = await branchStore.loadMessages(threadId);
+      return loaded.length === count ? loaded : undefined;
+    }, `${count} messages on the live path`);
+
+  const firstTurn = async () => {
+    const handler = handlerFor("first answer");
+    await (await handler(post({ id: "t1", messages: [userMsg("m1", "hello")] }))).text();
+    const [, assistant] = await settled("t1", 2);
+    return assistant;
+  };
+
+  test("a regenerate answers again as a sibling, not a continuation", async () => {
+    const original = await firstTurn();
+
+    // regenerate() truncates the history client-side and names the message to redo.
+    const handler = handlerFor("second answer");
+    const response = await handler(
+      post({
+        id: "t1",
+        messages: [userMsg("m1", "hello")],
+        trigger: "regenerate-message",
+        messageId: original?.id,
+      }),
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+
+    const loaded = await settled("t1", 2);
+    const replacement = loaded[1];
+    expect(replacement?.id).not.toBe(original?.id);
+    expect(JSON.stringify(replacement?.parts)).toContain("second answer");
+
+    // Both answers exist, as siblings under the same user message.
+    const { siblings } = await branchStore.siblingsOf(original?.id as string);
+    expect(siblings).toHaveLength(2);
+    expect(await branchStore.getTree("t1")).toHaveLength(3);
+  });
+
+  test("an edit forks instead of appending", async () => {
+    await firstTurn();
+
+    // sendMessage({ messageId }) replaces that user message, keeping its id, and truncates after.
+    const handler = handlerFor("answer to the edit");
+    const response = await handler(
+      post({ id: "t1", messages: [userMsg("m1", "hello, edited")], messageId: "m1" }),
+    );
+    // Asserted: without this, a 500 from a failed fork looked like a passing test.
+    expect(response.status).toBe(200);
+    await response.text();
+
+    const loaded = await settled("t1", 2);
+    expect(loaded[0]?.parts).toEqual([{ type: "text", text: "hello, edited" }]);
+    // The edited message is a new row; the client's id still names the original wording.
+    expect(loaded[0]?.id).not.toBe("m1");
+    expect(JSON.stringify(loaded[1]?.parts)).toContain("answer to the edit");
+
+    // The original question and its answer are still there, off the live path.
+    const tree = await branchStore.getTree("t1");
+    expect(tree).toHaveLength(4);
+    expect(tree.some((m) => JSON.stringify(m.parts).includes("hello, edited"))).toBe(true);
+    expect(tree.some((m) => JSON.stringify(m.parts).includes("first answer"))).toBe(true);
+  });
+
+  // Bare sendMessage() resends the last message unchanged with its id, which must not fork.
+  test("a retry with the same id and same parts adds nothing", async () => {
+    const original = await firstTurn();
+    const before = await branchStore.getTree("t1");
+
+    const handler = handlerFor("retried answer");
+    await (
+      await handler(post({ id: "t1", messages: [userMsg("m1", "hello")], messageId: "m1" }))
+    ).text();
+
+    await until(async () => {
+      const tree = await branchStore.getTree("t1");
+      return tree.length === before.length + 1 ? true : undefined;
+    }, "one new reply");
+
+    // No forked user message: only the extra answer.
+    const tree = await branchStore.getTree("t1");
+    expect(tree.filter((m) => m.role === "user")).toHaveLength(1);
+    expect(original?.id).toBeTruthy();
+  });
+
+  test("a store without branching answers a regenerate as a new turn, with a warning", async () => {
+    const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const original = await firstTurn();
+
+    const { forkAt, regenerateFrom, siblingsOf, setActiveLeaf, getTree, ...plain } = branchStore;
+    const handler = chatHandler({
+      store: plain,
+      execute: ({ modelMessages }) =>
+        streamText({ model: textModel(["plain answer"]), messages: modelMessages }),
+    });
+
+    const response = await handler(
+      post({
+        id: "t1",
+        messages: [userMsg("m1", "hello")],
+        trigger: "regenerate-message",
+        messageId: original?.id,
+      }),
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+
+    expect(warns.mock.calls.flat().join(" ")).toContain("cannot branch");
+    expect(forkAt && regenerateFrom && siblingsOf && setActiveLeaf && getTree).toBeTruthy();
+    warns.mockRestore();
+  });
+  // After an edit the client still knows the original id, and resends it every turn. Matching
+  // against the whole tree (not the live path) is what stops that becoming a duplicate row.
+  test("a turn after an edit does not resurrect the replaced message", async () => {
+    await firstTurn();
+    const handler = handlerFor("answer to the edit");
+    await (
+      await handler(post({ id: "t1", messages: [userMsg("m1", "hello, edited")], messageId: "m1" }))
+    ).text();
+    await settled("t1", 2);
+    const afterEdit = await branchStore.getTree("t1");
+
+    // The client resends its full history, including the id it still believes in.
+    const next = await handler(
+      post({ id: "t1", messages: [userMsg("m1", "hello, edited"), userMsg("m3", "next")] }),
+    );
+    expect(next.status).toBe(200);
+    await next.text();
+
+    await until(async () => {
+      const tree = await branchStore.getTree("t1");
+      return tree.length === afterEdit.length + 2 ? true : undefined;
+    }, "the new turn to be stored");
+
+    const tree = await branchStore.getTree("t1");
+    // Exactly one row per id: nothing was re-inserted.
+    expect(new Set(tree.map((m) => m.id)).size).toBe(tree.length);
+    expect(tree.filter((m) => JSON.stringify(m.parts).includes("hello, edited"))).toHaveLength(1);
+  });
+});
