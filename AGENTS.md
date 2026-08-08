@@ -8,14 +8,14 @@ Last updated: 2026-08-08
 
 **ai-sdk-threads** persists chat threads and messages for the Vercel AI SDK. It stores `UIMessage` parts verbatim rather than inventing a message format of its own, so what `useChat` sends is what comes back.
 
-| Area          | Detail                                                                        |
-| ------------- | ----------------------------------------------------------------------------- |
-| Language      | TypeScript strict, ESM only, Node `>=20`                                       |
-| Build         | tsdown (CLI flags, not a config file) + publint + attw                         |
-| Tests         | vitest against PGlite - real Postgres semantics, in-process, no Docker         |
-| Lint / format | Biome - double quotes, semicolons, trailing commas, 100 columns                |
-| Peers         | `ai` (`>=6 <8`, dev-tested on 7.0.x); `drizzle-orm` `^0.45` (optional)        |
-| Runtime deps  | none, in the core or the adapter - this is a feature, not an accident          |
+| Area          | Detail                                                                 |
+| ------------- | ---------------------------------------------------------------------- |
+| Language      | TypeScript strict, ESM only, Node `>=20`                               |
+| Build         | tsdown (CLI flags, not a config file) + publint + attw                 |
+| Tests         | vitest against PGlite - real Postgres semantics, in-process, no Docker |
+| Lint / format | Biome - double quotes, semicolons, trailing commas, 100 columns        |
+| Peers         | `ai` (`>=6 <8`, dev-tested on 7.0.x); `drizzle-orm` `^0.45` (optional) |
+| Runtime deps  | none, in the core or the adapter - this is a feature, not an accident  |
 
 ### Layout
 
