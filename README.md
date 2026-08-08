@@ -106,12 +106,12 @@ import { db } from "./db";
 export const store = createThreadStore(db);
 ```
 
-Persist both sides of a turn in your chat route. `originalMessages` is what gives the assistant reply a stable id, and `onEnd` fires once the stream is complete:
+Persist both sides of a turn in your chat route. `onEnd` fires once the stream is complete, and `generateMessageId` is what gives the assistant reply its id - pass it, because the store keys rows by message id and the SDK otherwise leaves the id empty on a normal user turn:
 
 ```ts
 // app/api/chat/route.ts
 import { openai } from "@ai-sdk/openai";
-import { convertToModelMessages, streamText } from "ai";
+import { convertToModelMessages, generateId, streamText } from "ai";
 import { store } from "@/lib/threads";
 
 export async function POST(req: Request) {
@@ -127,6 +127,7 @@ export async function POST(req: Request) {
 
   return result.toUIMessageStreamResponse({
     originalMessages: messages,
+    generateMessageId: generateId,
     onEnd: async ({ responseMessage }) => {
       await store.appendMessages(id, [responseMessage]);
     },

@@ -79,6 +79,17 @@ describe("messages", () => {
     await expect(store.appendMessages("nope", [userMsg("m", "x")])).rejects.toThrow(/thread/i);
   });
 
+  // The SDK leaves responseMessage.id empty unless the route passes generateMessageId.
+  // Storing that would key a row on "" and collide on the next assistant message.
+  test("appendMessages rejects a message with no id", async () => {
+    const t = await store.createThread({});
+    await expect(store.appendMessages(t.id, [userMsg("", "x")])).rejects.toThrow(/id/i);
+    await expect(
+      store.appendMessages(t.id, [{ role: "user", parts: [] } as unknown as UIMessage]),
+    ).rejects.toThrow(/id/i);
+    expect(await store.loadMessages(t.id)).toEqual([]);
+  });
+
   test("appendMessages preserves message metadata", async () => {
     const t = await store.createThread({});
     const msg = { ...userMsg("m1", "x"), metadata: { source: "test" } } as UIMessage;

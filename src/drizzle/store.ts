@@ -113,6 +113,17 @@ export function createThreadStore(db: ThreadStoreDatabase): ThreadStore {
 
     async appendMessages(threadId: string, input: UIMessage[]): Promise<StoredMessage[]> {
       if (input.length === 0) return [];
+      for (const message of input) {
+        // Rows are keyed by message id. The SDK leaves an assistant reply's id empty
+        // unless the route passes generateMessageId, and storing "" would collide on
+        // the next reply - so refuse here rather than write an unusable row.
+        if (!message.id) {
+          throw new Error(
+            'ai-sdk-threads: message is missing an "id". If this is an assistant reply from ' +
+              "toUIMessageStreamResponse, pass generateMessageId so the SDK assigns one.",
+          );
+        }
+      }
       return db.transaction(async (tx) => {
         // FOR UPDATE: two concurrent appends that both read the same leaf would each
         // chain to it and silently fork the thread into two branches.
