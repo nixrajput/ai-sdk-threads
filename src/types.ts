@@ -66,11 +66,26 @@ export interface BranchingStore {
    * Starts a new branch in place of `messageId`: the new messages chain from that message's
    * PARENT, so `messageId` and everything after it on that path are left behind but not deleted.
    */
-  forkAt(messageId: string, messages: UIMessage[]): Promise<StoredMessage[]>;
-  /** Moves the active leaf back to `messageId`'s parent so the caller can re-answer from there. */
-  regenerateFrom(messageId: string): Promise<{ parentId: string | null }>;
-  /** Every message sharing `messageId`'s parent, oldest first, and which one `messageId` is. */
-  siblingsOf(messageId: string): Promise<{ siblings: StoredMessage[]; index: number }>;
+  forkAt(threadId: string, messageId: string, messages: UIMessage[]): Promise<StoredMessage[]>;
+  /**
+   * Rewrites a message's content while keeping its id, and preserves the previous version as a
+   * sibling branch that keeps the old replies. The id survives so a client that edits the same
+   * message twice without reloading still names something that exists.
+   */
+  replaceMessage(threadId: string, messageId: string, message: UIMessage): Promise<StoredMessage>;
+  /**
+   * Points the active leaf where a fresh answer to `messageId` belongs: at the message itself if
+   * it is a user turn, or at its parent if it is an assistant turn being redone.
+   */
+  regenerateFrom(threadId: string, messageId: string): Promise<{ leafId: string | null }>;
+  /**
+   * Every message sharing `messageId`'s parent, oldest first. Siblings created in the same
+   * millisecond fall back to id order.
+   */
+  siblingsOf(
+    threadId: string,
+    messageId: string,
+  ): Promise<{ siblings: StoredMessage[]; index: number }>;
   /** Switches which path through the tree is live. Any message in the thread may be the leaf. */
   setActiveLeaf(threadId: string, messageId: string): Promise<void>;
   /** Every message in the thread, flat; walk `parentId` to rebuild the shape. */

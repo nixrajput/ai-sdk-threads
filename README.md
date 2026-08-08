@@ -457,7 +457,7 @@ So regenerate and edit work with no extra code. The store methods are there for 
 Previous/next buttons over an answer's variants are `siblingsOf` plus `setActiveLeaf`:
 
 ```tsx
-const { siblings, index } = await store.siblingsOf(message.id);
+const { siblings, index } = await store.siblingsOf(threadId, message.id);
 
 // "< 2 / 3 >"
 async function show(next: number) {
@@ -468,7 +468,7 @@ async function show(next: number) {
 
 `loadMessages` then returns the newly selected path, so re-rendering from it is all the UI has to do. This is the shape [ai-elements' `MessageBranch`](https://ai-sdk.dev/elements) expects.
 
-**Editing changes the message id.** The SDK client reuses the edited message's id, but the original row still holds it - so the edit is stored as a new row with a new id and the old wording is kept as its sibling. Your client picks the new id up on the next `loadMessages`. Nothing is lost either way.
+**An edit keeps the message id.** The edited row is rewritten in place and the previous version is archived under a new id, taking the replies that answered it. That means your client's id stays valid, so the same message can be edited repeatedly without reloading, and switching back to an older version brings its whole conversation with it.
 
 `setActiveLeaf` is also the repair path if a leaf ever points at a message that no longer exists: point it at any message still in the thread and the thread is readable again.
 

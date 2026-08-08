@@ -84,6 +84,7 @@ export function chatHandler(options: ChatHandlerOptions) {
   const { store } = options;
 
   return async function handleChat(request: Request): Promise<Response> {
+    let rollback: (() => Promise<void>) | undefined;
     try {
       let raw: unknown;
       try {
@@ -102,7 +103,9 @@ export function chatHandler(options: ChatHandlerOptions) {
       const needsTitle =
         options.generateTitle !== undefined && isFirstTurn && thread.title === null;
 
-      const uiMessages = await resolveHistory(options, parsed);
+      const turn = await resolveHistory(options, parsed);
+      rollback = turn.rollback;
+      const uiMessages = turn.history;
       const modelMessages = await convertToModelMessages(uiMessages);
 
       const result = await options.execute({ threadId, uiMessages, modelMessages, request });
@@ -151,6 +154,9 @@ export function chatHandler(options: ChatHandlerOptions) {
 
       return response;
     } catch (error) {
+      await rollback?.().catch((failure) => {
+        console.error("ai-sdk-threads: could not restore the thread's active leaf", failure);
+      });
       if (error instanceof ChatBodyError) return text(error.message, 400);
       const override = options.onError?.(error);
       if (override) return override;
@@ -160,65 +166,115 @@ export function chatHandler(options: ChatHandlerOptions) {
   };
 }
 
-/** Parts compared as stored: an edit resend reuses the message id but changes the content. */
-const sameParts = (a: UIMessage, b: UIMessage) =>
-  JSON.stringify(a.parts) === JSON.stringify(b.parts);
+/**
+ * Key order is not stable across the jsonb write and the zod read, so a plain JSON.stringify
+ * comparison would read an unchanged retry as an edit and fork the thread.
+ */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+const sameParts = (a: UIMessage, b: UIMessage) => canonical(a.parts) === canonical(b.parts);
+
+/** A client-supplied id that names nothing is a bad request, not a server fault. */
+const asBadRequest = async <T>(work: Promise<T>): Promise<T> => {
+  try {
+    return await work;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/not found in thread/.test(message)) throw new ChatBodyError(message);
+    throw error;
+  }
+};
+
+export interface ResolvedTurn {
+  history: UIMessage[];
+  /** Restores thread state if the request fails after it was changed. */
+  rollback?: () => Promise<void>;
+}
 
 /**
  * Applies what this request means to the thread and returns the history to answer from. The
- * three shapes the SDK client can send are told apart by `trigger` plus `messageId`: a regenerate
- * names the message to redo, an edit reuses an existing id with new parts, and anything else is
- * a new turn. A retry - same id, same parts - must add nothing.
+ * shapes the SDK client can send are told apart by `trigger` plus `messageId`: a regenerate names
+ * the message to redo (or nothing, meaning the last answer), an edit reuses an existing id with
+ * new parts, and anything else is a new turn. A retry - same id, same parts - must add nothing.
  */
 async function resolveHistory(
   options: ChatHandlerOptions,
   parsed: ParsedChatBody,
-): Promise<UIMessage[]> {
+): Promise<ResolvedTurn> {
   const { store } = options;
   const { threadId, incoming, trigger, messageId } = parsed;
   const existing = await store.loadMessages(threadId);
 
-  if (trigger === "regenerate-message" && messageId !== undefined) {
+  if (trigger === "regenerate-message") {
     if (!store.regenerateFrom) {
       console.warn(
         "ai-sdk-threads: this store cannot branch, so the regenerate is answered as a new turn",
       );
-      return existing;
+      return { history: existing };
     }
-    // Drops the leaf back to the target's parent; the fresh answer lands as its sibling.
-    await store.regenerateFrom(messageId);
-    return store.loadMessages(threadId);
+    // `regenerate()` with no argument means the last answer, which is what the SDK client sends.
+    const target = messageId ?? [...existing].reverse().find((m) => m.role === "assistant")?.id;
+    if (target === undefined) return { history: existing };
+
+    const previousLeaf = existing[existing.length - 1]?.id ?? null;
+    await asBadRequest(store.regenerateFrom(threadId, target));
+    return {
+      history: await store.loadMessages(threadId),
+      // The leaf moved before streaming, so a failed reply would otherwise leave the thread
+      // truncated - worse than the pre-branching behaviour, where a failure was a no-op.
+      rollback: async () => {
+        if (previousLeaf && store.setActiveLeaf) {
+          await store.setActiveLeaf(threadId, previousLeaf);
+        }
+      },
+    };
   }
 
-  const edited =
-    messageId === undefined ? undefined : incoming.find((message) => message.id === messageId);
-  const stored =
-    messageId === undefined ? undefined : existing.find((message) => message.id === messageId);
+  const edited = messageId === undefined ? undefined : incoming.find((m) => m.id === messageId);
+  const stored = messageId === undefined ? undefined : existing.find((m) => m.id === messageId);
 
-  if (edited && stored && !sameParts(edited, stored) && store.forkAt) {
+  if (messageId !== undefined && edited && !stored && existing.length > 0) {
+    // The id is not on the live path. Silently ignoring it would drop the user's edit, so say so.
+    throw new ChatBodyError(
+      `message "${messageId}" is not on this thread's current path; reload before editing it`,
+    );
+  }
+
+  let replaced: string | undefined;
+  if (edited && stored && !sameParts(edited, stored) && store.replaceMessage) {
     const [replacement] = await acceptable([edited]);
     if (replacement) {
-      // A fresh id, because the client reuses the edited message's id and the original row still
-      // holds it - the old wording is kept as a sibling rather than overwritten.
-      await store.forkAt(messageId as string, [{ ...replacement, id: generateId() }]);
-      return store.loadMessages(threadId);
+      // Rewritten in place, keeping the id, with the old wording preserved as a sibling that
+      // holds the old replies. Keeping the id is what lets the same message be edited twice.
+      await asBadRequest(store.replaceMessage(threadId, messageId as string, replacement));
+      replaced = messageId;
     }
   }
 
   // The default transport reposts the whole conversation every turn, so anything already stored
-  // has to be dropped here or it collides on the message primary key. Matched against the whole
-  // tree, not the live path: after an edit the client keeps resending the id it knows, which now
-  // belongs to a row sitting on an abandoned branch.
-  const known = store.getTree ? await store.getTree(threadId) : existing;
-  const existingIds = new Set(known.map((message) => message.id));
-  const fresh = await acceptable(incoming.filter((message) => !existingIds.has(message.id)));
+  // has to be dropped here or it collides on the message primary key.
+  const known = new Set(existing.map((m) => m.id));
+  const fresh = await acceptable(incoming.filter((m) => !known.has(m.id) && m.id !== replaced));
 
-  // Stored before streaming so a mid-stream crash cannot lose the user's message.
+  // Stored before streaming so a mid-stream crash cannot lose the user's message. Appended even
+  // on the edit path: a request can carry an edit AND a new message, and dropping the latter
+  // silently would be worse than the collision the check above prevents.
   if (fresh.length > 0) await store.appendMessages(threadId, fresh);
+
+  if (replaced !== undefined) return { history: await store.loadMessages(threadId) };
 
   // Assembled rather than re-read: both halves are already validated, and re-loading would
   // rescan and revalidate the entire thread on every turn.
-  return [...existing, ...fresh];
+  return { history: [...existing, ...fresh] };
 }
 
 /**

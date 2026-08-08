@@ -45,7 +45,9 @@ Two tables. `ai_sdk_threads` holds the thread plus an `activeLeafId`; `ai_sdk_me
 
 The tree is fully exercised now: `forkAt`, `regenerateFrom`, `siblingsOf`, `setActiveLeaf` and `getTree` live on `BranchingStore`, and `chatHandler` routes the SDK client's regenerate and edit shapes into them. Nothing is ever deleted - editing or regenerating leaves the old version as a sibling. Do not "simplify" `parentId` or `activeLeafId` away.
 
-Two things about editing are easy to get wrong. The client reuses the edited message's **id**, which the original row still holds, so the fork is written under a fresh server id - and deduplication of resent history therefore matches against `getTree`, not the live path, or the id the client keeps sending would be re-inserted. Both have regression tests.
+Every branching method takes a **`threadId`** alongside the message id, and refuses an id that does not belong to it. Message ids are a global primary key, so an unscoped lookup let a request mutate or read another thread - do not drop the thread argument for convenience.
+
+Editing goes through `replaceMessage`, which rewrites the row in place and archives the previous version under a surrogate id, moving the old replies onto it. Keeping the client's id is what allows a second edit without a reload. The edit-vs-retry test compares parts **canonically**: jsonb does not preserve key order, so a plain `JSON.stringify` comparison turned an unchanged retry into a spurious branch. All of this has regression tests.
 
 Table names are prefixed `ai_sdk_` because the tables land in the consumer's own database next to their application tables.
 

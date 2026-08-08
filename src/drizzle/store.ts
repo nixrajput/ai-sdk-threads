@@ -1,6 +1,6 @@
 import type { UIMessage } from "ai";
 import { generateId, validateUIMessages } from "ai";
-import { and, asc, desc, eq, isNull, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lt, ne, or } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { orderPath } from "../chain.js";
 import type {
@@ -90,7 +90,8 @@ async function forStorage(input: UIMessage[]): Promise<UIMessage[]> {
   return validateUIMessages({ messages: input });
 }
 
-const messageNotFound = (id: string) => new Error(`ai-sdk-threads: message "${id}" not found`);
+const messageNotFound = (threadId: string, id: string) =>
+  new Error(`ai-sdk-threads: message "${id}" not found in thread "${threadId}"`);
 
 /** Locks the thread row so concurrent writers cannot both chain to the same leaf. */
 async function lockThread(tx: ThreadStoreDatabase, threadId: string) {
@@ -104,13 +105,17 @@ async function lockThread(tx: ThreadStoreDatabase, threadId: string) {
   return thread;
 }
 
-async function findMessage(db: ThreadStoreDatabase, messageId: string) {
+/**
+ * Message ids are a global primary key, so every branching entry point resolves them WITH the
+ * thread. Looking one up by id alone would let a caller mutate or read another thread's messages.
+ */
+async function findMessage(db: ThreadStoreDatabase, threadId: string, messageId: string) {
   const [row] = await db
-    .select({ threadId: messages.threadId, parentId: messages.parentId })
+    .select({ threadId: messages.threadId, parentId: messages.parentId, role: messages.role })
     .from(messages)
-    .where(eq(messages.id, messageId))
+    .where(and(eq(messages.id, messageId), eq(messages.threadId, threadId)))
     .limit(1);
-  if (!row) throw messageNotFound(messageId);
+  if (!row) throw messageNotFound(threadId, messageId);
   return row;
 }
 
@@ -235,33 +240,98 @@ export function createThreadStore(
       });
     },
 
-    async forkAt(messageId: string, input: UIMessage[]): Promise<StoredMessage[]> {
+    async forkAt(
+      threadId: string,
+      messageId: string,
+      input: UIMessage[],
+    ): Promise<StoredMessage[]> {
       if (input.length === 0) return [];
       const validated = await forStorage(input);
 
       return db.transaction(async (tx) => {
-        const target = await findMessage(tx, messageId);
-        await lockThread(tx, target.threadId);
-        // Chained from the target's PARENT, which is what makes this a sibling branch rather
-        // than a continuation. The old rows stay put and remain reachable via getTree.
-        return writeChain(tx, target.threadId, target.parentId, validated, sdkVersion);
+        await lockThread(tx, threadId);
+        const target = await findMessage(tx, threadId, messageId);
+        // Chained from the target's PARENT, which is what makes this a sibling branch rather than
+        // a continuation. The old rows stay put and remain reachable via getTree.
+        return writeChain(tx, threadId, target.parentId, validated, sdkVersion);
       });
     },
 
-    async regenerateFrom(messageId: string): Promise<{ parentId: string | null }> {
+    async replaceMessage(
+      threadId: string,
+      messageId: string,
+      message: UIMessage,
+    ): Promise<StoredMessage> {
+      const [validated] = await forStorage([message]);
+      if (!validated) throw new Error("ai-sdk-threads: no message to store");
+
       return db.transaction(async (tx) => {
-        const target = await findMessage(tx, messageId);
-        await lockThread(tx, target.threadId);
+        await lockThread(tx, threadId);
+        const [current] = await tx
+          .select()
+          .from(messages)
+          .where(and(eq(messages.id, messageId), eq(messages.threadId, threadId)))
+          .limit(1);
+        if (!current) throw messageNotFound(threadId, messageId);
+
+        // The previous version is copied to a surrogate id, keeping its original timestamp so it
+        // sorts first among siblings, and the old replies are moved onto it.
+        const archiveId = generateId();
+        await tx.insert(messages).values({ ...current, id: archiveId });
+        await tx
+          .update(messages)
+          .set({ parentId: archiveId })
+          .where(
+            and(
+              eq(messages.threadId, threadId),
+              eq(messages.parentId, messageId),
+              ne(messages.id, archiveId),
+            ),
+          );
+
+        // The row itself keeps its id and takes the new content, so the client's id stays valid.
+        const [updated] = await tx
+          .update(messages)
+          .set({
+            parts: validated.parts,
+            metadata: asMetadata(validated.metadata ?? null),
+            sdkVersion,
+            createdAt: new Date(),
+          })
+          .where(eq(messages.id, messageId))
+          .returning();
+        if (!updated) throw messageNotFound(threadId, messageId);
+
         await tx
           .update(threads)
-          .set({ activeLeafId: target.parentId, updatedAt: new Date() })
-          .where(eq(threads.id, target.threadId));
-        return { parentId: target.parentId };
+          .set({ activeLeafId: messageId, updatedAt: new Date() })
+          .where(eq(threads.id, threadId));
+
+        return toStoredMessage(updated);
       });
     },
 
-    async siblingsOf(messageId: string): Promise<{ siblings: StoredMessage[]; index: number }> {
-      const target = await findMessage(db, messageId);
+    async regenerateFrom(threadId: string, messageId: string): Promise<{ leafId: string | null }> {
+      return db.transaction(async (tx) => {
+        await lockThread(tx, threadId);
+        const target = await findMessage(tx, threadId, messageId);
+        // Redoing an assistant turn means answering its parent again; redoing a USER turn means
+        // answering that message again, so the leaf lands on the target itself. Moving to the
+        // parent in that case would drop the user's own message off the live path.
+        const leafId = target.role === "assistant" ? target.parentId : messageId;
+        await tx
+          .update(threads)
+          .set({ activeLeafId: leafId, updatedAt: new Date() })
+          .where(eq(threads.id, threadId));
+        return { leafId };
+      });
+    },
+
+    async siblingsOf(
+      threadId: string,
+      messageId: string,
+    ): Promise<{ siblings: StoredMessage[]; index: number }> {
+      const target = await findMessage(db, threadId, messageId);
       // Scoped by thread as well as parent: `parent_id IS NULL` alone would match the roots of
       // every other thread too.
       const rows = await db
@@ -269,7 +339,7 @@ export function createThreadStore(
         .from(messages)
         .where(
           and(
-            eq(messages.threadId, target.threadId),
+            eq(messages.threadId, threadId),
             target.parentId === null
               ? isNull(messages.parentId)
               : eq(messages.parentId, target.parentId),
@@ -282,12 +352,7 @@ export function createThreadStore(
     },
 
     async setActiveLeaf(threadId: string, messageId: string): Promise<void> {
-      const target = await findMessage(db, messageId);
-      if (target.threadId !== threadId) {
-        throw new Error(
-          `ai-sdk-threads: message "${messageId}" does not belong to thread "${threadId}"`,
-        );
-      }
+      await findMessage(db, threadId, messageId);
       await db
         .update(threads)
         .set({ activeLeafId: messageId, updatedAt: new Date() })
@@ -295,6 +360,15 @@ export function createThreadStore(
     },
 
     async getTree(threadId: string): Promise<StoredMessage[]> {
+      // Throws for a missing thread, like every other read here: silently reporting "empty"
+      // would let a typo'd id read as a thread with no messages.
+      const [thread] = await db
+        .select({ id: threads.id })
+        .from(threads)
+        .where(eq(threads.id, threadId))
+        .limit(1);
+      if (!thread) throw notFound(threadId);
+
       const rows = await db.select().from(messages).where(eq(messages.threadId, threadId));
       return rows.map(toStoredMessage);
     },

@@ -528,7 +528,7 @@ describe("chatHandler branching", () => {
     expect(JSON.stringify(replacement?.parts)).toContain("second answer");
 
     // Both answers exist, as siblings under the same user message.
-    const { siblings } = await branchStore.siblingsOf(original?.id as string);
+    const { siblings } = await branchStore.siblingsOf("t1", original?.id as string);
     expect(siblings).toHaveLength(2);
     expect(await branchStore.getTree("t1")).toHaveLength(3);
   });
@@ -547,8 +547,8 @@ describe("chatHandler branching", () => {
 
     const loaded = await settled("t1", 2);
     expect(loaded[0]?.parts).toEqual([{ type: "text", text: "hello, edited" }]);
-    // The edited message is a new row; the client's id still names the original wording.
-    expect(loaded[0]?.id).not.toBe("m1");
+    // The id is preserved, so the client can edit the same message again without reloading.
+    expect(loaded[0]?.id).toBe("m1");
     expect(JSON.stringify(loaded[1]?.parts)).toContain("answer to the edit");
 
     // The original question and its answer are still there, off the live path.
@@ -642,5 +642,124 @@ describe("chatHandler branching", () => {
     // Exactly one row per id: nothing was re-inserted.
     expect(new Set(tree.map((m) => m.id)).size).toBe(tree.length);
     expect(tree.filter((m) => JSON.stringify(m.parts).includes("hello, edited"))).toHaveLength(1);
+  });
+  // `regenerate()` with no argument is the SDK's documented default: redo the last answer. It
+  // sends messageId: undefined, which used to fall through and stack two answers on one path.
+  test("a bare regenerate redoes the last answer instead of stacking a second one", async () => {
+    await firstTurn();
+    const handler = handlerFor("second answer");
+    const response = await handler(
+      post({ id: "t1", messages: [userMsg("m1", "hello")], trigger: "regenerate-message" }),
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+
+    const loaded = await settled("t1", 2);
+    expect(loaded.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(JSON.stringify(loaded[1]?.parts)).toContain("second answer");
+    // Two answers exist, as siblings - not both on the live path.
+    expect(await branchStore.getTree("t1")).toHaveLength(3);
+  });
+
+  // Regenerating a USER message must re-answer it, not drop it off the live path.
+  test("a regenerate targeting the user message keeps the question", async () => {
+    await firstTurn();
+    const handler = handlerFor("fresh answer");
+    const response = await handler(
+      post({
+        id: "t1",
+        messages: [userMsg("m1", "hello")],
+        trigger: "regenerate-message",
+        messageId: "m1",
+      }),
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+
+    const loaded = await settled("t1", 2);
+    expect(loaded[0]?.id).toBe("m1");
+    expect(JSON.stringify(loaded[1]?.parts)).toContain("fresh answer");
+  });
+
+  test("a regenerate naming another thread's message is a 400, not a 500", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await firstTurn();
+    const victim = await branchStore.createThread({ id: "victim" });
+    await branchStore.appendMessages(victim.id, [userMsg("v1", "private") as never]);
+    await branchStore.appendMessages(victim.id, [
+      { id: "va1", role: "assistant", parts: [{ type: "text", text: "private reply" }] } as never,
+    ]);
+
+    const handler = handlerFor("nope");
+    const response = await handler(
+      post({
+        id: "t1",
+        messages: [userMsg("m1", "hello")],
+        trigger: "regenerate-message",
+        messageId: "va1",
+      }),
+    );
+    expect(response.status).toBe(400);
+    // The other thread is untouched.
+    expect((await branchStore.loadMessages("victim")).map((m) => m.id)).toEqual(["v1", "va1"]);
+    errors.mockRestore();
+  });
+
+  test("the same message can be edited twice without reloading", async () => {
+    await firstTurn();
+    const handler = handlerFor("answer");
+
+    for (const text of ["edit one", "edit two"]) {
+      const response = await handler(
+        post({ id: "t1", messages: [userMsg("m1", text)], messageId: "m1" }),
+      );
+      expect(response.status).toBe(200);
+      await response.text();
+      await settled("t1", 2);
+    }
+
+    const loaded = await branchStore.loadMessages("t1");
+    expect(loaded[0]?.parts).toEqual([{ type: "text", text: "edit two" }]);
+  });
+
+  test("an edit carrying a new message stores both", async () => {
+    await firstTurn();
+    const handler = handlerFor("answer");
+    const response = await handler(
+      post({
+        id: "t1",
+        messages: [userMsg("m1", "hello, edited"), userMsg("m9", "also new")],
+        messageId: "m1",
+      }),
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+
+    await until(async () => {
+      const tree = await branchStore.getTree("t1");
+      return tree.some((m) => m.id === "m9") ? true : undefined;
+    }, "the extra message to be stored");
+    const tree = await branchStore.getTree("t1");
+    expect(tree.find((m) => m.id === "m9")).toBeDefined();
+  });
+
+  // jsonb reorders object keys, so a retry sending the same content with different key order
+  // must not read as an edit and fork the thread.
+  test("a retry with reordered part keys is not treated as an edit", async () => {
+    await firstTurn();
+    const before = await branchStore.getTree("t1");
+
+    const handler = handlerFor("retried");
+    const reordered = { id: "m1", role: "user", parts: [{ text: "hello", type: "text" }] };
+    const response = await handler(post({ id: "t1", messages: [reordered], messageId: "m1" }));
+    expect(response.status).toBe(200);
+    await response.text();
+
+    await until(async () => {
+      const tree = await branchStore.getTree("t1");
+      return tree.length === before.length + 1 ? true : undefined;
+    }, "one new reply");
+    // Still exactly one user message: no spurious branch.
+    expect((await branchStore.getTree("t1")).filter((m) => m.role === "user")).toHaveLength(1);
   });
 });
