@@ -250,7 +250,11 @@ Both wire shapes work unchanged. The default transport posts the whole conversat
 
 #### Without the handler
 
-The store is perfectly usable on its own if you want to own the route. Two things matter: store the user message _before_ streaming, and pass `generateMessageId` - rows are keyed by message id, and the SDK leaves an assistant reply's id empty on a normal user turn.
+The store works on its own if you want to own the route. Three things the handler does for you that are easy to get wrong by hand:
+
+- **Pass `generateMessageId`, and do not pass `originalMessages`.** Rows are keyed by message id. Without `generateMessageId` the SDK leaves a reply's id empty; and if `originalMessages` ends with an assistant message, the SDK **reuses that id** and the new reply collides with the stored row and is lost.
+- **Register both `onEnd` and `onFinish`.** `onEnd` is ai 7's name, `onFinish` is ai 6's. Registering only one means no reply is stored on the other major.
+- **Store only what is new.** The default transport reposts the whole conversation every turn, so filter against what you already have rather than appending what arrived.
 
 ```ts
 // app/api/chat/route.ts
@@ -261,88 +265,33 @@ import { store } from "@/lib/threads";
 export async function POST(req: Request) {
   const { id, messages } = await req.json();
 
-  // The user's newest message; the rest are already stored.
-  await store.appendMessages(id, messages.slice(-1));
+  const existing = await store.loadMessages(id);
+  const known = new Set(existing.map((m) => m.id));
+  const fresh = messages.filter((m) => m.role === "user" && !known.has(m.id));
+  if (fresh.length > 0) await store.appendMessages(id, fresh);
 
+  const history = [...existing, ...fresh];
   const result = streamText({
     model: openai("gpt-5"),
-    messages: await convertToModelMessages(messages),
+    messages: await convertToModelMessages(history),
   });
 
+  let persisted = false;
+  const persist = async ({ responseMessage }: { responseMessage: UIMessage }) => {
+    if (persisted || responseMessage.parts.length === 0) return;
+    persisted = true;
+    await store.appendMessages(id, [responseMessage]);
+  };
+
   return result.toUIMessageStreamResponse({
-    originalMessages: messages,
     generateMessageId: generateId,
-    onEnd: async ({ responseMessage }) => {
-      await store.appendMessages(id, [responseMessage]);
-    },
+    onEnd: persist,
+    onFinish: persist,
   });
 }
 ```
 
-### `resumableChat(options)`
-
-A reload halfway through an answer normally loses it: the stream was tied to a request that no longer exists. `resumableChat` takes every `chatHandler` option and returns the three handlers a resuming client needs.
-
-```ts
-// app/api/chat/route.ts
-export const { POST } = resumableChat({
-  store,
-  execute: ({ modelMessages }) =>
-    streamText({ model: openai("gpt-5"), messages: modelMessages }),
-});
-```
-
-```ts
-// app/api/chat/[id]/stream/route.ts - the path the SDK's client resumes from
-export const { GET, DELETE } = resumableChat({ store, execute });
-```
-
-Then turn resuming on in the client:
-
-```tsx
-const { messages, sendMessage } = useChat({
-  id,
-  messages: initialMessages,
-  resume: true,
-});
-```
-
-| Handler  | Behaviour                                                                                                            |
-| -------- | -------------------------------------------------------------------------------------------------------------------- |
-| `POST`   | `chatHandler`, plus: records a stream id on the thread before answering, and clears it once the stream ends.         |
-| `GET`    | Replays a stream that is still in flight. **204** when there is nothing to resume, which is what the client expects. |
-| `DELETE` | Forgets the active stream, so a later `GET` answers 204. Always 204.                                                 |
-
-Two extra options on top of `chatHandler`'s:
-
-| Option          | Required | What it does                                                                                           |
-| --------------- | -------- | ------------------------------------------------------------------------------------------------------ |
-| `streamContext` | no       | Where in-flight streams live. Defaults to in-process - see below.                                      |
-| `threadIdFrom`  | no       | How to read the thread id from a GET/DELETE. Defaults to the `<threadId>/stream` path the client uses. |
-
-**The default context is in-process, and that is a real limitation.** It resumes only within the instance that served the POST, so on more than one instance (or any serverless deployment) a resume can land on a process that never saw the stream and gets a 204. Pass a Redis-backed context for those:
-
-```ts
-import { createResumableStreamContext } from "resumable-stream/ioredis";
-
-export const { POST, GET, DELETE } = resumableChat({
-  store,
-  execute,
-  streamContext: createResumableStreamContext({ waitUntil: null }),
-});
-```
-
-`resumable-stream` is an optional peer, so add it when you use this module: `npm install resumable-stream`. Redis on top of that is your choice, not this package's - `resumable-stream` itself ships with no dependencies.
-
-The default in-memory context is a single **process-wide** instance, so splitting POST and GET across two route files works. It still cannot cross processes: on more than one instance, a resume that lands elsewhere answers 204.
-
-`DELETE` forgets a stream rather than killing it: `resumable-stream` exposes no abort, so the generation finishes server-side (and is still persisted) but stops being resumable. That is what a stop button wants in practice - the answer is saved, the client stops following it.
-
-**Migration.** This version adds one nullable column:
-
-```sql
-ALTER TABLE ai_sdk_threads ADD COLUMN active_stream_id text;
-```
+That is most of what `chatHandler` does, minus authorization, branching, and the truncated-reply handling - which is the argument for using it.
 
 ### `createThreadStore(db)`
 

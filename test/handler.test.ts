@@ -338,17 +338,72 @@ describe("chatHandler", () => {
 
   // Review finding: a client must not be able to forge system/assistant context.
   test.each([["system"], ["assistant"]])(
-    "rejects a new %s message from the client",
+    "never stores a client-supplied %s message",
     async (role) => {
+      // Not rejected: a 400 would brick the thread, because after a truncated reply the client
+      // holds an assistant message that was never stored and reposts it on every later turn.
+      const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
       const handler = handlerWith();
       const response = await handler(
         post({ id: "t1", messages: [{ id: "x1", role, parts: [{ type: "text", text: "evil" }] }] }),
       );
-      expect(response.status).toBe(400);
-      expect(await response.text()).toMatch(/only new "user" messages/);
-      expect(await store.loadMessages("t1")).toEqual([]);
+      expect(response.status).toBe(200);
+      await response.text();
+
+      const stored = await store.loadMessages("t1");
+      expect(stored.some((m) => m.id === "x1")).toBe(false);
+      expect(JSON.stringify(stored)).not.toContain("evil");
+      expect(warns.mock.calls.flat().join(" ")).toContain("non-user messages");
+      warns.mockRestore();
     },
   );
+
+  // A disconnect leaves the client holding an unstored assistant reply; every later turn reposts
+  // it, and rejecting that used to 400 the thread permanently.
+  test("a thread keeps working after a reply was truncated and never stored", async () => {
+    const warns = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const handler = handlerWith();
+    const first = await handler(post({ id: "t1", messages: [userMsg("m1", "hello")] }));
+    await first.body?.cancel();
+    await new Promise((r) => setTimeout(r, 200));
+
+    const partial = { id: "ghost", role: "assistant", parts: [{ type: "text", text: "half" }] };
+    const next = await handler(
+      post({ id: "t1", messages: [userMsg("m1", "hello"), partial, userMsg("m2", "again")] }),
+    );
+    expect(next.status).toBe(200);
+    await next.text();
+
+    const stored = await until(async () => {
+      const loaded = await store.loadMessages("t1");
+      return loaded.some((m) => m.role === "assistant") ? loaded : undefined;
+    }, "the thread to answer again");
+    expect(stored.some((m) => m.id === "ghost")).toBe(false);
+    warns.mockRestore();
+  });
+
+  // canonical() runs on raw request JSON before validation, so it must not blow the stack.
+  test("deeply nested parts do not crash the handler", async () => {
+    const handler = handlerWith();
+    // Built as a raw string: JSON.parse is iterative and accepts this, while JSON.stringify would
+    // blow the stack in the test itself before the handler ever saw it.
+    const depth = 5000;
+    const body =
+      `{"id":"t1","messageId":"m1","messages":[{"id":"m1","role":"user","parts":` +
+      "[".repeat(depth) +
+      '"leaf"' +
+      "]".repeat(depth) +
+      "}]}";
+    const response = await handler(
+      new Request("https://example.test/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      }),
+    );
+    // A bad request, not a 500 from a stack overflow.
+    expect(response.status).toBe(400);
+  });
 
   // Review finding: reusing the previous assistant id collided on the primary key and the
   // new reply was lost. Retrying a turn whose messages are all stored must still work.

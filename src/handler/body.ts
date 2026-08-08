@@ -2,7 +2,8 @@ import type { UIMessage } from "ai";
 
 // Read off the installed ai 7.0.x HttpChatTransport: its default body is `{ id, messages, trigger,
 // messageId }` carrying the FULL history, while a custom prepareSendMessagesRequest commonly sends
-// `{ id, message }`. The transport's third trigger, 'resume-stream', never reaches a POST body -.
+// `{ id, message }`. The transport's third trigger, 'resume-stream', never reaches a POST body; it
+// goes to the GET reconnect route instead.
 
 export type ChatTrigger = "submit-message" | "regenerate-message";
 

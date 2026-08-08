@@ -63,7 +63,7 @@ jobs:
 
   # peerDependencies accept `ai >=6 <8`, so the older major has to be exercised or that range is
   # a guess. This caught the handler passing only ai 7's `onEnd`, which meant no reply was ever
-  # persisted on ai 6. Skips `build`: tsdown needs a newer Node than this job pins for install speed.
+  # persisted on ai 6, so no reply was stored at all on the older major.
   build-ai-6:
     name: build (ai@6)
     runs-on: ubuntu-latest

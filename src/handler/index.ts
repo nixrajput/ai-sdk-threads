@@ -44,7 +44,8 @@ export interface ChatHandlerOptions {
   }) => ChatThreadScope | Promise<ChatThreadScope>;
   /**
    * Guards an existing thread; return false to answer 403. Thread ids come from the client, so
-   * without this any caller can post into someone else's thread. `createThread` cannot cover it -.
+   * without this any caller can post into someone else's thread. `createThread` only fires for
+   * ids that do not exist yet, so it cannot cover this.
    */
   authorize?: (ctx: { thread: Thread; request: Request }) => boolean | Promise<boolean>;
   generateTitle?: (ctx: { firstUserMessage: UIMessage }) => string | Promise<string>;
@@ -177,13 +178,16 @@ export function chatHandler(options: ChatHandlerOptions) {
  * Key order is not stable across the jsonb write and the zod read, so a plain JSON.stringify
  * comparison would read an unchanged retry as an edit and fork the thread.
  */
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+function canonical(value: unknown, depth = 0): string {
+  // Bounded: this runs on raw request JSON before validation, so deeply nested input would
+  // otherwise overflow the stack and surface as a 500 instead of a 400.
+  if (depth > 32) return '"<deep>"';
+  if (Array.isArray(value)) return `[${value.map((v) => canonical(v, depth + 1)).join(",")}]`;
   if (value && typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>)
       .filter(([, v]) => v !== undefined)
       .sort(([a], [b]) => a.localeCompare(b));
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v, depth + 1)}`).join(",")}}`;
   }
   return JSON.stringify(value) ?? "null";
 }
@@ -208,8 +212,8 @@ export interface ResolvedTurn {
 }
 
 /**
- * Applies what this request means to the thread and returns the history to answer from. The shapes
- * client's shapes are told apart by `trigger` plus `messageId`; a retry - same id, same parts - adds nothing.
+ * Applies what this request means to the thread and returns the history to answer from. The client's
+ * shapes are told apart by `trigger` plus `messageId`; a retry - same id, same parts - adds nothing.
  */
 async function resolveHistory(
   options: ChatHandlerOptions,
@@ -262,9 +266,20 @@ async function resolveHistory(
     throw new ChatBodyError(`message "${messageId}" is not a user message and cannot be edited`);
   }
 
-  if (edited && stored && !sameParts(edited, stored) && store.replaceMessage) {
-    const [replacement] = await acceptable([edited]);
+  const isEdit = Boolean(edited && stored && !sameParts(edited, stored));
+  if (isEdit && !store.replaceMessage) {
+    // Warned rather than silently dropped: the model would otherwise answer the pre-edit text.
+    console.warn("ai-sdk-threads: this store cannot branch, so the edit is answered as a retry");
+  }
+
+  let restoreLeaf: (() => Promise<void>) | undefined;
+  if (isEdit && store.replaceMessage) {
+    const [replacement] = await acceptable([edited as UIMessage]);
     if (replacement) {
+      const previousLeaf = existing[existing.length - 1]?.id ?? null;
+      restoreLeaf = async () => {
+        if (previousLeaf && store.setActiveLeaf) await store.setActiveLeaf(threadId, previousLeaf);
+      };
       // Rewritten in place, keeping the id, with the old wording preserved as a sibling that
       // holds the old replies. Keeping the id is what lets the same message be edited twice.
       await asBadRequest(store.replaceMessage(threadId, messageId as string, replacement));
@@ -282,7 +297,11 @@ async function resolveHistory(
   // silently would be worse than the collision the check above prevents.
   if (fresh.length > 0) await store.appendMessages(threadId, fresh);
 
-  if (replaced !== undefined) return { history: await store.loadMessages(threadId) };
+  if (replaced !== undefined) {
+    // Same reason regenerate rolls back: the thread was mutated before streaming, so a failing
+    // execute would otherwise leave every turn after the edit orphaned off the live path.
+    return { history: await store.loadMessages(threadId), rollback: restoreLeaf };
+  }
 
   // Assembled rather than re-read: both halves are already validated, and re-loading would
   // rescan and revalidate the entire thread on every turn.
@@ -298,12 +317,16 @@ async function acceptable(candidates: UIMessage[]): Promise<UIMessage[]> {
 
   // Accepting a new system or assistant message would let a client forge context that every
   // later turn on this thread inherits.
-  const forged = candidates.find((message) => message.role !== "user");
-  if (forged) {
-    throw new ChatBodyError(`only new "user" messages are accepted, received "${forged.role}"`);
+  // Dropped, not rejected: storing one would let a client forge context that every later turn
+  // inherits, but a 400 bricks the thread - after a truncated reply the client legitimately holds an
+  // assistant message that was never stored, and reposts it on every turn from then on.
+  const own = candidates.filter((message) => message.role === "user");
+  if (own.length !== candidates.length) {
+    console.warn("ai-sdk-threads: ignoring client-supplied non-user messages; they are not stored");
   }
+  if (own.length === 0) return [];
 
-  const validated = await safeValidateUIMessages({ messages: candidates });
+  const validated = await safeValidateUIMessages({ messages: own });
   if (!validated.success) {
     throw new ChatBodyError(`message failed validation: ${validated.error.message}`);
   }

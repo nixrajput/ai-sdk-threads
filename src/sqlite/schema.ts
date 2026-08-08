@@ -3,7 +3,8 @@ import { CURRENT_SDK_MAJOR } from "../types.js";
 
 // The SQLite mirror of src/drizzle/schema.ts: same table and column names, so the store logic and
 // every documented query carry over. Two type differences are unavoidable - SQLite has no jsonb
-// (text with mode "json") and no timestamptz (integer milliseconds, which is exactly the precision.
+// (text with mode "json") and no timestamptz (integer milliseconds, which is exactly the precision
+// the keyset cursor round-trips through a JS Date).
 
 export const threads = sqliteTable(
   "ai_sdk_threads",

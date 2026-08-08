@@ -34,7 +34,8 @@ export { messages, threads } from "./schema.js";
 
 /**
  * A drizzle SQLite database on an **async** driver - libsql is what CI runs. Writes use
- * interactive transactions with an async callback: better-sqlite3 rejects that outright, Bun's.
+ * interactive transactions with an async callback, which better-sqlite3 rejects outright, Bun's
+ * driver does not await, and D1 does not support at all.
  */
 export type SqliteThreadStoreDatabase = BaseSQLiteDatabase<"sync" | "async", unknown>;
 
@@ -164,7 +165,12 @@ export function createThreadStore(
     },
 
     async deleteThread(id: string): Promise<void> {
-      await db.delete(threads).where(eq(threads.id, id));
+      // Messages are deleted explicitly rather than by cascade: SQLite has foreign keys OFF by
+      // default per connection, so relying on it would silently leave the conversation on disk.
+      await db.transaction(async (tx) => {
+        await tx.delete(messages).where(eq(messages.threadId, id));
+        await tx.delete(threads).where(eq(threads.id, id));
+      });
     },
 
     async appendMessages(threadId: string, input: UIMessage[]): Promise<StoredMessage[]> {

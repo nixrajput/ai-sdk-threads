@@ -59,7 +59,8 @@ export interface ThreadStore {
 
 /**
  * Tree operations, kept out of `ThreadStore` so a hand-written store need not implement them.
- * Every method takes the thread as well as the message: ids are a global key, so an unscoped.
+ * Every method takes the thread as well as the message: ids are a global key, so an unscoped
+ * lookup would reach another thread's messages.
  */
 export interface BranchingStore {
   forkAt(threadId: string, messageId: string, messages: UIMessage[]): Promise<StoredMessage[]>;
@@ -72,7 +73,9 @@ export interface BranchingStore {
     threadId: string,
     messageId: string,
   ): Promise<{ siblings: StoredMessage[]; index: number }>;
+  /** Switches which path through the tree is live; any message in the thread may be the leaf. */
   setActiveLeaf(threadId: string, messageId: string): Promise<void>;
+  /** Every message in the thread, flat; walk `parentId` to rebuild the shape. */
   getTree(threadId: string): Promise<StoredMessage[]>;
 }
 

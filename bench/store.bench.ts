@@ -14,6 +14,7 @@ const uiMsg = (id: string): UIMessage =>
 let ctx: Awaited<ReturnType<typeof makeDb>> | undefined;
 let store: ReturnType<typeof createThreadStore>;
 let seededThreadId: string;
+let appendThreadId: string;
 let counter = 0;
 
 // One database for the file: measuring the operations, not PGlite startup.
@@ -23,6 +24,9 @@ async function ready() {
   store = createThreadStore(ctx.db);
   const thread = await store.createThread({ userId: "bench" });
   seededThreadId = thread.id;
+  // A separate thread to append into: sharing one would grow the thread the load bench measures,
+  // so "loadMessages (20 messages)" would really be timing hundreds and drift between runs.
+  appendThreadId = (await store.createThread({ userId: "bench" })).id;
   await store.appendMessages(
     thread.id,
     Array.from({ length: 20 }, (_, i) => uiMsg(`seed${i}`)),
@@ -37,7 +41,7 @@ describe("store", () => {
 
   bench(
     "appendMessages (1 message)",
-    async () => void (await store.appendMessages(seededThreadId, [uiMsg(`b${counter++}`)])),
+    async () => void (await store.appendMessages(appendThreadId, [uiMsg(`b${counter++}`)])),
     { ...opts, setup: ready },
   );
 
