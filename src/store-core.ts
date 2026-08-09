@@ -6,8 +6,8 @@ import type { StoredMessage } from "./types.js";
 // (cursor encoding, limit bounds, write validation, parent linking) are written once and
 // shared by the Postgres and SQLite adapters, which differ only in their queries.
 
-export const DEFAULT_LIMIT = 20;
-export const MAX_LIMIT = 100;
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
 
 export const notFound = (id: string) => new Error(`ai-sdk-threads: thread "${id}" not found`);
 
