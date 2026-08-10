@@ -6,6 +6,10 @@ import { describe, expect, test } from "vitest";
 // cleanup deleted a whole section unnoticed, which is what these assert against.
 const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 
+// Headings are read from the prose only: a shell comment like `# SDK v1` inside a fenced
+// block is not a heading, and counting it as one fails the round-trip below.
+const prose = readme.replace(/^```[\s\S]*?^```/gm, "");
+
 const slug = (heading: string) =>
   heading
     .toLowerCase()
@@ -14,7 +18,7 @@ const slug = (heading: string) =>
     .trim()
     .replace(/ /g, "-");
 
-const headings = [...readme.matchAll(/^#{1,3} (.+)$/gm)].map((m) => m[1] as string);
+const headings = [...prose.matchAll(/^#{1,3} (.+)$/gm)].map((m) => m[1] as string);
 const tocEntries = [...readme.matchAll(/^\s*- \[([^\]]+)\]\(#([^)]+)\)/gm)].map((m) => ({
   text: m[1] as string,
   anchor: m[2] as string,
