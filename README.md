@@ -219,19 +219,19 @@ You can [run this against a real Postgres in your browser][docs-playground] - th
 
 Full documentation lives at **[ai-sdk-threads.nixrajput.com][docs]**.
 
-| | |
-| --- | --- |
-| [Getting started][docs-start] | Install, schema, and a persisted `useChat` conversation |
-| [`chatHandler`][docs-api] | Every option, what it does in order, and securing a thread |
-| [`resumableChat`][docs-resume] | The POST/GET/DELETE trio, and the Redis-backed context |
-| [The store][docs-store] | Thread and message methods, keyset pagination, `orderPath` |
-| [Branching][docs-branching] | Regenerate, edit-and-fork, sibling navigation |
-| [`convertToUIMessages`][docs-convert] | The `ModelMessage` to `UIMessage` direction |
-| [SQLite][docs-sqlite] | The same contract, and the three constraints that are not optional |
-| [Schema][docs-schema] | Both tables, every column, and why timestamps are millisecond precision |
-| [Migrating][docs-migrating] | `sdk_version` on every row, and the `migrate` CLI |
-| [Importing][docs-importing] | Bringing over Vercel's `ai-chatbot` template tables |
-| [Playground][docs-playground] | Branching in a real Postgres running in your browser |
+|                                       |                                                                         |
+| ------------------------------------- | ----------------------------------------------------------------------- |
+| [Getting started][docs-start]         | Install, schema, and a persisted `useChat` conversation                 |
+| [`chatHandler`][docs-api]             | Every option, what it does in order, and securing a thread              |
+| [`resumableChat`][docs-resume]        | The POST/GET/DELETE trio, and the Redis-backed context                  |
+| [The store][docs-store]               | Thread and message methods, keyset pagination, `orderPath`              |
+| [Branching][docs-branching]           | Regenerate, edit-and-fork, sibling navigation                           |
+| [`convertToUIMessages`][docs-convert] | The `ModelMessage` to `UIMessage` direction                             |
+| [SQLite][docs-sqlite]                 | The same contract, and the three constraints that are not optional      |
+| [Schema][docs-schema]                 | Both tables, every column, and why timestamps are millisecond precision |
+| [Migrating][docs-migrating]           | `sdk_version` on every row, and the `migrate` CLI                       |
+| [Importing][docs-importing]           | Bringing over Vercel's `ai-chatbot` template tables                     |
+| [Playground][docs-playground]         | Branching in a real Postgres running in your browser                    |
 
 ## Is this for you
 
@@ -253,13 +253,13 @@ Full documentation lives at **[ai-sdk-threads.nixrajput.com][docs]**.
 
 Nothing below is a like-for-like competitor, which is rather the point.
 
-| | Scope | Where the data lives | Branching stored | Cost |
-| --- | --- | --- | --- | --- |
-| **ai-sdk-threads** | Threads, messages, branching, resumable streams | Your Postgres or SQLite | Yes | MIT, no service |
-| The AI SDK's persistence guide | A pattern to copy per app | Yours | No | Free, hand-maintained |
-| [assistant-ui](https://www.assistant-ui.com) cloud | UI plus hosted persistence | Their infrastructure | No | Per active user |
-| [Convex](https://www.convex.dev) | A whole reactive backend | Their platform | No | Per usage |
-| Vercel's `ai-chatbot` template | An app to fork | Yours | No | Free, fork-and-own |
+|                                                    | Scope                                           | Where the data lives    | Branching stored | Cost                  |
+| -------------------------------------------------- | ----------------------------------------------- | ----------------------- | ---------------- | --------------------- |
+| **ai-sdk-threads**                                 | Threads, messages, branching, resumable streams | Your Postgres or SQLite | Yes              | MIT, no service       |
+| The AI SDK's persistence guide                     | A pattern to copy per app                       | Yours                   | No               | Free, hand-maintained |
+| [assistant-ui](https://www.assistant-ui.com) cloud | UI plus hosted persistence                      | Their infrastructure    | No               | Per active user       |
+| [Convex](https://www.convex.dev)                   | A whole reactive backend                        | Their platform          | No               | Per usage             |
+| Vercel's `ai-chatbot` template                     | An app to fork                                  | Yours                   | No               | Free, fork-and-own    |
 
 If you want the managed experience, take assistant-ui or Convex - they are good at it. This exists for the case where the conversation has to stay in a database you control, and where regenerate and edit need to survive a reload. If you started from the Vercel template, its tables [import straight across][docs-importing].
 
