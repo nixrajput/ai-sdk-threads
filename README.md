@@ -1,11 +1,14 @@
 <div align="center">
 
+<img src="https://raw.githubusercontent.com/nixrajput/ai-sdk-threads/main/assets/logo.svg" width="76" alt="ai-sdk-threads">
+
 # ai-sdk-threads
 
-Chat thread and message persistence for the **Vercel AI SDK** - `UIMessage` parts stored verbatim, in your own Postgres.
+<em>The AI SDK gives you <code>useChat</code>. This gives you somewhere to put it.</em>
 
 <br />
 
+[![CI](https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml/badge.svg)][ci]
 [![npm](https://img.shields.io/npm/v/ai-sdk-threads?color=159F7C)][npm]
 [![Stars](https://img.shields.io/github/stars/nixrajput/ai-sdk-threads?color=159F7C)][repo]
 [![Contributors](https://img.shields.io/github/contributors/nixrajput/ai-sdk-threads?color=159F7C)][contributors]
@@ -14,7 +17,14 @@ Chat thread and message persistence for the **Vercel AI SDK** - `UIMessage` part
 [![Issues](https://img.shields.io/github/issues/nixrajput/ai-sdk-threads?label=issues)][issues]
 [![PRs](https://img.shields.io/github/issues-pr/nixrajput/ai-sdk-threads?label=PRs)][pulls]
 
-**[Documentation][docs]** - [Getting started][docs-start] - [API reference][docs-api] - [Playground][docs-playground]
+<strong>Threads &middot; message trees &middot; branching &middot; resumable streams &middot; Postgres or SQLite &middot; zero runtime dependencies</strong><br>
+<sub>No benchmark numbers here, because persistence is not a speed story. What is measurable: <strong>194 tests</strong>, <strong>30 of them running the identical contract against both databases</strong> so the adapters cannot drift; <code>ai</code> <strong>6 and 7 both gated in CI</strong>, which is what caught the handler storing nothing on the older major; and <strong>no Node globals in <code>src/</code></strong>, enforced by a second typecheck so the core runs on edge runtimes. <a href="https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml">See the runs</a>.</sub>
+
+<br />
+
+**[Documentation][docs]** &middot; [Getting started][docs-start] &middot; [API reference][docs-api] &middot; [Playground][docs-playground] &middot; [llms.txt][llms]
+
+<sub><b>AI agents / LLMs:</b> the documentation is machine-readable at <a href="https://ai-sdk-threads.nixrajput.com/llms.txt"><code>llms.txt</code></a>, or as one blob at <a href="https://ai-sdk-threads.nixrajput.com/llms-full.txt"><code>llms-full.txt</code></a>.</sub>
 
 </div>
 
@@ -24,6 +34,7 @@ Chat thread and message persistence for the **Vercel AI SDK** - `UIMessage` part
 
 - [ai-sdk-threads](#ai-sdk-threads)
   - [Contents](#contents)
+  - [Before and after](#before-and-after)
   - [Overview](#overview)
   - [Features](#features)
   - [Getting started](#getting-started)
@@ -31,13 +42,60 @@ Chat thread and message persistence for the **Vercel AI SDK** - `UIMessage` part
     - [Install](#install)
     - [Add the tables to your schema](#add-the-tables-to-your-schema)
     - [Quickstart](#quickstart)
+  - [How branching is stored](#how-branching-is-stored)
   - [Documentation](#documentation)
+  - [Is this for you](#is-this-for-you)
+  - [Compared to](#compared-to)
+  - [FAQ](#faq)
   - [Requirements](#requirements)
   - [Contributing](#contributing)
   - [Contributors](#contributors)
   - [License](#license)
   - [Support the project](#support-the-project)
   - [Connect](#connect)
+
+## Before and after
+
+The AI SDK's own persistence guide has you hand-roll the choreography in your route: load the thread, filter what is new, store it before streaming, generate an id, register the finish callback under both of its names, store the reply.
+
+```ts
+const { id, messages } = await req.json();
+
+const existing = await store.loadMessages(id);
+const known = new Set(existing.map((m) => m.id));
+const fresh = messages.filter((m) => m.role === "user" && !known.has(m.id));
+if (fresh.length > 0) await store.appendMessages(id, fresh);
+
+const result = streamText({
+  model: openai("gpt-5"),
+  messages: await convertToModelMessages([...existing, ...fresh]),
+});
+
+let persisted = false;
+const persist = async ({ responseMessage }) => {
+  if (persisted || responseMessage.parts.length === 0) return;
+  persisted = true;
+  await store.appendMessages(id, [responseMessage]);
+};
+
+return result.toUIMessageStreamResponse({
+  generateMessageId: generateId,
+  onEnd: persist,
+  onFinish: persist,
+});
+```
+
+With `chatHandler`:
+
+```ts
+export const POST = chatHandler({
+  store,
+  execute: ({ modelMessages }) =>
+    streamText({ model: openai("gpt-5"), messages: modelMessages }),
+});
+```
+
+25 lines to 8 - and the short one also does authorization, branching, and the truncated-reply handling the long one does not attempt. Both samples are published in [the docs][docs-api] and typechecked against this package on every build, so neither can drift into a strawman.
 
 ## Overview
 
@@ -141,6 +199,22 @@ export default async function Page({
 
 **Before you deploy, add authorization.** Thread ids come from the client, so without an `authorize` callback anyone who guesses an id can read that conversation - see [Securing a thread][docs-secure].
 
+## How branching is stored
+
+Every message row points at its parent, and the thread records which leaf is live. Regenerating does not overwrite - it adds a sibling.
+
+```
+ai_sdk_threads.active_leaf_id = "a2"
+
+m1  user       "Explain closures, briefly."
+├── a1  assistant  "A function bundled with the variables…"     sibling, still stored
+└── a2  assistant  "Think of a backpack the function carries…"  live path
+```
+
+`loadMessages` returns the root-to-leaf path, so the conversation reads as one thread while every abandoned branch stays queryable. Point `setActiveLeaf` at `a1` and the older answer is live again, with whatever replies hung off it.
+
+You can [run this against a real Postgres in your browser][docs-playground] - the playground compiles the database to WebAssembly and drives this package's published build, showing the call it made and the rows it produced.
+
 ## Documentation
 
 Full documentation lives at **[ai-sdk-threads.nixrajput.com][docs]**.
@@ -158,6 +232,53 @@ Full documentation lives at **[ai-sdk-threads.nixrajput.com][docs]**.
 | [Migrating][docs-migrating]           | `sdk_version` on every row, and the `migrate` CLI                       |
 | [Importing][docs-importing]           | Bringing over Vercel's `ai-chatbot` template tables                     |
 | [Playground][docs-playground]         | Branching in a real Postgres running in your browser                    |
+
+## Is this for you
+
+**Good fit if you…**
+
+- build on `useChat` and are about to write the persistence layer by hand
+- want branching - regenerate and edit-and-fork - stored rather than faked in component state
+- need the conversation in **your** database, for compliance, for joins, or because you already run Postgres
+- expect to survive the AI SDK's next major without inventing a `Message_v2` table
+
+**Skip it if you…**
+
+- want a managed service with hosted sync, search and analytics. [assistant-ui](https://www.assistant-ui.com) and [Convex](https://www.convex.dev) do that properly, and this deliberately does not.
+- need vector or semantic memory. Different problem: this stores conversations, it does not retrieve over them.
+- are on `ai` 4 or older. `ai` 5 was a rewrite, and the supported range is `>=6 <8`.
+- want chat UI components. [ai-elements](https://ai-sdk.dev/elements) and assistant-ui own that layer; this stores what they render.
+
+## Compared to
+
+Nothing below is a like-for-like competitor, which is rather the point.
+
+|                                                    | Scope                                           | Where the data lives    | Branching stored | Cost                  |
+| -------------------------------------------------- | ----------------------------------------------- | ----------------------- | ---------------- | --------------------- |
+| **ai-sdk-threads**                                 | Threads, messages, branching, resumable streams | Your Postgres or SQLite | Yes              | MIT, no service       |
+| The AI SDK's persistence guide                     | A pattern to copy per app                       | Yours                   | No               | Free, hand-maintained |
+| [assistant-ui](https://www.assistant-ui.com) cloud | UI plus hosted persistence                      | Their infrastructure    | No               | Per active user       |
+| [Convex](https://www.convex.dev)                   | A whole reactive backend                        | Their platform          | No               | Per usage             |
+| Vercel's `ai-chatbot` template                     | An app to fork                                  | Yours                   | No               | Free, fork-and-own    |
+
+If you want the managed experience, take assistant-ui or Convex - they are good at it. This exists for the case where the conversation has to stay in a database you control, and where regenerate and edit need to survive a reload. If you started from the Vercel template, its tables [import straight across][docs-importing].
+
+## FAQ
+
+**Why not just follow the SDK's persistence guide?**
+You can, and for one simple app you probably should. The reasons people stop: it silently stores an empty id if you forget `generateMessageId`, it stores nothing at all on `ai` 6 if you register only `onEnd`, it duplicates rows if you forget to filter what the transport reposts, and it has no answer for branching. Each of those is a real bug with a test in this repo.
+
+**Do I need Redis?**
+Only for resumable streams across more than one instance. The default stream context is in-process, which is genuinely enough in development and on a single server, and documented as insufficient beyond that rather than quietly failing.
+
+**What happens when `ai` 8 breaks the message shape?**
+Every row records the major that wrote it in `sdk_version`, and real captured payloads from `ai` 5, 6 and 7 are committed as fixtures, so the suite reports the day a format actually changes. As of `ai` 7 stored `parts` are byte-identical across all three majors, so there is nothing to convert yet - `migrateParts` is a pass-through and says so, rather than pretending to work.
+
+**Is SQLite a second-class adapter?**
+No. 30 of the 194 tests run the identical contract against both databases, so behaviour that holds on Postgres but not SQLite fails the build. It does carry three hard constraints, all documented: an async driver, no bare `:memory:`, and `PRAGMA foreign_keys = ON`.
+
+**Can I use it without the handler?**
+Yes - the store is the product and works alone. [The docs show the hand-written route][docs-api] and name the three things that are easy to get wrong.
 
 ## Requirements
 
@@ -223,6 +344,7 @@ ai-sdk-threads is MIT licensed and free to use, always. If it saves you writing 
 
 </div>
 
+[ci]: https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml
 [npm]: https://www.npmjs.com/package/ai-sdk-threads
 [repo]: https://github.com/nixrajput/ai-sdk-threads
 [issues]: https://github.com/nixrajput/ai-sdk-threads/issues
@@ -234,6 +356,7 @@ ai-sdk-threads is MIT licensed and free to use, always. If it saves you writing 
 [issue2929]: https://github.com/vercel/ai/issues/2929
 [docs]: https://ai-sdk-threads.nixrajput.com
 [docs-repo]: https://github.com/nixrajput/ai-sdk-threads-docs
+[llms]: https://ai-sdk-threads.nixrajput.com/llms.txt
 [docs-start]: https://ai-sdk-threads.nixrajput.com/en/docs/getting-started
 [docs-api]: https://ai-sdk-threads.nixrajput.com/en/docs/api/chat-handler
 [docs-secure]: https://ai-sdk-threads.nixrajput.com/en/docs/api/chat-handler#securing-a-thread

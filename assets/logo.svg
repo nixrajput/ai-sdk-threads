@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 32 32">
+  <title>ai-sdk-threads</title>
+  <rect width="32" height="32" rx="7" fill="#141118" />
+  <!-- A thread of messages where one reply branches off. Violet is the live path, amber the
+       abandoned sibling - the same roles the docs site codes branch state with. The dark tile
+       is deliberate: npm renders on white, GitHub on either, and a tile works on both. -->
+  <rect x="6" y="6" width="13" height="5.4" rx="2.7" fill="#e9e6ef" />
+  <rect x="6" y="13.3" width="10" height="5.4" rx="2.7" fill="#6b6478" />
+  <path d="M9 18.7v5.6h4.2" stroke="#9b8cff" stroke-width="2.2" fill="none" stroke-linecap="round" />
+  <rect x="13" y="21.6" width="13" height="5.4" rx="2.7" fill="#9b8cff" />
+</svg>
