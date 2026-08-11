@@ -77,7 +77,10 @@ test("paging deeper costs the same as the first page", async () => {
   for (let i = 0; i < 45; i++) await store.createThread({ userId: "u1" });
 
   const first = await store.listThreads({ userId: "u1", limit: 20 });
+  // Without this the test passes vacuously: an undefined cursor is treated as an initial page.
+  expect(first.nextCursor).toBeDefined();
   const second = await store.listThreads({ userId: "u1", limit: 20, cursor: first.nextCursor });
+  expect(second.nextCursor).toBeDefined();
   expect(await statements(() => store.listThreads({ userId: "u1", limit: 20 }))).toBe(1);
   expect(
     await statements(() =>
