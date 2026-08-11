@@ -52,6 +52,9 @@ test("every operation costs a fixed number of statements", async () => {
     regenerateFrom: await statements(() => store.regenerateFrom(id, "m10")),
     forkAt: await statements(() => store.forkAt(id, "m10", [msg("fork")])),
     replaceMessage: await statements(() => store.replaceMessage(id, "m10", msg("m10"))),
+    updateThread: await statements(() => store.updateThread(id, { title: "renamed" })),
+    // Last: the cascade takes its own messages with it.
+    deleteThread: await statements(() => store.deleteThread(id)),
   }).toEqual({
     createThread: 1,
     getThread: 1,
@@ -64,13 +67,29 @@ test("every operation costs a fixed number of statements", async () => {
     regenerateFrom: 3,
     forkAt: 4,
     replaceMessage: 6,
+    updateThread: 1,
+    deleteThread: 1,
   });
+});
+
+// A deep page is where an OFFSET scan would show up, so the cursor case is the one worth pinning.
+test("paging deeper costs the same as the first page", async () => {
+  for (let i = 0; i < 45; i++) await store.createThread({ userId: "u1" });
+
+  const first = await store.listThreads({ userId: "u1", limit: 20 });
+  const second = await store.listThreads({ userId: "u1", limit: 20, cursor: first.nextCursor });
+  expect(await statements(() => store.listThreads({ userId: "u1", limit: 20 }))).toBe(1);
+  expect(
+    await statements(() =>
+      store.listThreads({ userId: "u1", limit: 20, cursor: second.nextCursor }),
+    ),
+  ).toBe(1);
 });
 
 // The root-to-leaf path is walked in memory (`orderPath`), not with a recursive CTE, so depth
 // changes what comes back over the wire but never how many times we ask.
 test("loading a thread costs the same at any depth", async () => {
-  for (const depth of [1, 50, 500]) {
+  for (const depth of [1, 50, 100, 500]) {
     const id = await threadOfDepth(depth, `d${depth}-`);
     expect(await statements(() => store.loadMessages(id))).toBe(2);
     expect(await store.loadMessages(id)).toHaveLength(depth);

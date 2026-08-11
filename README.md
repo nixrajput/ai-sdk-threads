@@ -18,7 +18,7 @@
 [![PRs](https://img.shields.io/github/issues-pr/nixrajput/ai-sdk-threads?label=PRs)][pulls]
 
 <strong>Threads &middot; message trees &middot; branching &middot; resumable streams &middot; Postgres or SQLite &middot; zero runtime dependencies</strong><br>
-<sub><strong>Loading a thread is 2 queries</strong> whether it holds 1 message or 500 - the root-to-leaf path is walked in memory, not with a recursive CTE - and <code>listThreads</code> is <strong>one query per page at any depth</strong>: page 400 measured at <strong>1.00x</strong> the median of page 1 across 4,000 threads. Every operation's query count is <a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/test/queries.test.ts">pinned by a test</a>, so an N+1 fails CI. Also checkable: <strong>196 tests</strong>, 30 running the identical contract against both databases; <code>ai</code> <strong>6 and 7 both gated in CI</strong>, which caught the handler storing nothing on the older major; <strong>no Node globals in <code>src/</code></strong>, enforced by a second typecheck. <a href="https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml">See the runs</a>.</sub>
+<sub><strong>Loading a thread is 2 queries</strong> whether it holds 1 message or 500 - the root-to-leaf path is walked in memory, not with a recursive CTE - and <code>listThreads</code> is <strong>one query per page at any depth</strong>: page 400 measured at <strong>1.00x</strong> the median of page 1 across 4,000 threads. Every operation's query count is <a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/test/queries.test.ts">pinned by a test</a>, so an N+1 fails CI. Also checkable: <strong>197 tests</strong>, 30 running the identical contract against both databases; <code>ai</code> <strong>6 and 7 both gated in CI</strong>, which caught the handler storing nothing on the older major; <strong>no Node globals in <code>src/</code></strong>, enforced by a second typecheck. <a href="https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml">See the runs</a>.</sub>
 
 <br />
 
@@ -100,9 +100,9 @@ export const POST = chatHandler({
 
 Every AI SDK chat app ends up writing the same two tables, the same append-on-finish hook, and the same load-on-mount query - and usually flattens `UIMessage.parts` into a `content` string on the way in, which quietly loses tool calls, reasoning, and files.
 
-ai-sdk-threads is those two tables and a small typed store over them. Message `parts` go into `jsonb` exactly as the SDK produced them, so what comes back out is what `useChat` rendered - tool invocations and their outputs included. It is your database and your rows; this package owns no service and phones nothing home.
+ai-sdk-threads is those two tables and a small typed store over them. Message `parts` go into the database as JSON exactly as the SDK produced them, so what comes back out is what `useChat` rendered - tool invocations and their outputs included. It is your database and your rows; this package owns no service and phones nothing home.
 
-```
+```text
   useChat ──── POST /api/chat ────▶ chatHandler ────▶ ThreadStore ────▶ your database
      ▲                                   │                 │
      └───────── UIMessage stream ────────┘                 ├── ai_sdk_threads    active_leaf_id
@@ -191,6 +191,8 @@ Load the history when the page renders and hand it straight to `useChat`:
 
 ```tsx
 // app/chat/[id]/page.tsx
+import { notFound } from "next/navigation";
+import { currentUserId } from "@/lib/auth";
 import { store } from "@/lib/threads";
 import { Chat } from "./chat";
 
@@ -200,21 +202,25 @@ export default async function Page({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  // A brand-new chat id has no thread until the first POST, and loadMessages throws for one
-  // that does not exist - so check before loading, or the first render of a new chat is a 500.
   const thread = await store.getThread(id);
+
+  // The id comes from the URL, so the page needs its own ownership check: `authorize` guards
+  // chatHandler, not this render. 404 rather than 403, so a stranger cannot tell an existing
+  // thread from a missing one. loadMessages then throws for an id with no thread yet.
+  if (thread && thread.userId !== (await currentUserId())) notFound();
+
   const messages = thread ? await store.loadMessages(id) : [];
   return <Chat id={id} initialMessages={messages} />;
 }
 ```
 
-**Before you deploy, add authorization.** Thread ids come from the client, so without an `authorize` callback anyone who guesses an id can read that conversation - see [Securing a thread][docs-secure].
+**Before you deploy, add authorization in both places.** Thread ids come from the client, so `chatHandler` needs an `authorize` callback and any page that renders a thread needs the same ownership check - `authorize` does not run on a server render. See [Securing a thread][docs-secure].
 
 ## How branching is stored
 
 Every message row points at its parent, and the thread records which leaf is live. Regenerating does not overwrite - it adds a sibling.
 
-```
+```text
 ai_sdk_threads.active_leaf_id = "a2"
 
 m1  user       "Explain closures, briefly."
