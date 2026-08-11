@@ -8,13 +8,13 @@ Last updated: 2026-08-08
 
 **ai-sdk-threads** persists chat threads and messages for the Vercel AI SDK. It stores `UIMessage` parts verbatim rather than inventing a message format of its own, so what `useChat` sends is what comes back.
 
-| Area          | Detail                                                                 |
-| ------------- | ---------------------------------------------------------------------- |
-| Language      | TypeScript strict, ESM only, Node `>=20`                               |
-| Build         | tsdown (CLI flags, not a config file) + publint + attw                 |
-| Tests         | vitest against PGlite - real Postgres semantics, in-process, no Docker |
-| Lint / format | Biome - double quotes, semicolons, trailing commas, 100 columns        |
-| Peers         | `ai` (`>=6 <8`, dev-tested on 7.0.x); `drizzle-orm` `^0.45` (optional) |
+| Area          | Detail                                                                            |
+| ------------- | --------------------------------------------------------------------------------- |
+| Language      | TypeScript strict, ESM only, Node `>=20`                                          |
+| Build         | tsdown (CLI flags, not a config file) + publint + attw                            |
+| Tests         | vitest against PGlite - real Postgres semantics, in-process, no Docker            |
+| Lint / format | Biome - double quotes, semicolons, trailing commas, 100 columns                   |
+| Peers         | `ai` (`>=6 <8`, dev-tested on 7.0.x); `drizzle-orm` `^0.45` (optional)            |
 | Runtime deps  | none. `ai`, `drizzle-orm` and `resumable-stream` are peers, the last two optional |
 
 ### Layout
@@ -66,6 +66,8 @@ Table names are prefixed `ai_sdk_` because the tables land in the consumer's own
 `.githooks/pre-push` also prints an inform-only report: per-file size deltas against the published version, npm/Bundlephobia bundle metrics, benchmarks, knip, and coverage. It never blocks a push (`|| true`), skips bench and coverage when no `src/`, `test/`, `bench/`, or `package.json` file changed, and uses a short bench sample. `npm run report` runs the full-fidelity version, and CI attaches it to every PR summary.
 
 `resumableChat` reuses `chatHandler` through its single `beforeStream` seam rather than duplicating the choreography. Three things there were established by measurement and each has a regression test: the default stream context is one **process-wide** singleton (a per-call one gives the documented two-file route layout two contexts that cannot see each other, so resume silently never works); `GET`/`DELETE` run `authorize` themselves because `chatHandler` only guards POST; and everything inside `consumeSseStream` is wrapped, because the SDK discards that promise and an escaping rejection takes the process down.
+
+`test/queries.test.ts` pins how many statements every operation sends, and the README's round-trip claims are those exact numbers - change a query count and both have to move. Wall-clock belongs in `bench/`, which says of itself that its numbers are indicative rather than publication grade; the statement counts are what is deterministic enough to publish.
 
 Both adapters share `src/store-core.ts` and each writes its own queries; `test/parity.test.ts` runs the whole contract against both, which is what stops them drifting. SQLite has no `SELECT ... FOR UPDATE` (a write transaction already holds the database) and needs `PRAGMA foreign_keys = ON` or the cascade silently does nothing.
 
