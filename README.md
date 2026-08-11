@@ -18,11 +18,11 @@
 [![PRs](https://img.shields.io/github/issues-pr/nixrajput/ai-sdk-threads?label=PRs)][pulls]
 
 <strong>Threads &middot; message trees &middot; branching &middot; resumable streams &middot; Postgres or SQLite &middot; zero runtime dependencies</strong><br>
-<sub>No benchmark numbers here, because persistence is not a speed story. What is measurable: <strong>194 tests</strong>, <strong>30 of them running the identical contract against both databases</strong> so the adapters cannot drift; <code>ai</code> <strong>6 and 7 both gated in CI</strong>, which is what caught the handler storing nothing on the older major; and <strong>no Node globals in <code>src/</code></strong>, enforced by a second typecheck so the core runs on edge runtimes. <a href="https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml">See the runs</a>.</sub>
+<sub><strong>Loading a thread is 2 queries</strong> whether it holds 1 message or 500 - the root-to-leaf path is walked in memory, not with a recursive CTE - and <code>listThreads</code> is <strong>one query per page at any depth</strong>: page 400 measured at <strong>1.00x</strong> the median of page 1 across 4,000 threads. Every operation's query count is <a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/test/queries.test.ts">pinned by a test</a>, so an N+1 fails CI. Also checkable: <strong>196 tests</strong>, 30 running the identical contract against both databases; <code>ai</code> <strong>6 and 7 both gated in CI</strong>, which caught the handler storing nothing on the older major; <strong>no Node globals in <code>src/</code></strong>, enforced by a second typecheck. <a href="https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml">See the runs</a>.</sub>
 
 <br />
 
-**[Documentation][docs]** &middot; [Getting started][docs-start] &middot; [API reference][docs-api] &middot; [Playground][docs-playground] &middot; [llms.txt][llms]
+**[Documentation][docs]** &middot; [Getting started][docs-start] &middot; [API reference][docs-api] &middot; [Playground][docs-playground]
 
 <sub><b>AI agents / LLMs:</b> the documentation is machine-readable at <a href="https://ai-sdk-threads.nixrajput.com/llms.txt"><code>llms.txt</code></a>, or as one blob at <a href="https://ai-sdk-threads.nixrajput.com/llms-full.txt"><code>llms-full.txt</code></a>.</sub>
 
@@ -47,7 +47,6 @@
   - [Is this for you](#is-this-for-you)
   - [Compared to](#compared-to)
   - [FAQ](#faq)
-  - [Requirements](#requirements)
   - [Contributing](#contributing)
   - [Contributors](#contributors)
   - [License](#license)
@@ -99,9 +98,16 @@ export const POST = chatHandler({
 
 ## Overview
 
-The AI SDK gives you `useChat` and a streaming route. It does not give you anywhere to put the conversation. Every project ends up writing the same two tables, the same append-on-finish hook, and the same load-on-mount query - and usually flattens `UIMessage.parts` into a `content` string on the way in, which quietly loses tool calls, reasoning, and files.
+Every AI SDK chat app ends up writing the same two tables, the same append-on-finish hook, and the same load-on-mount query - and usually flattens `UIMessage.parts` into a `content` string on the way in, which quietly loses tool calls, reasoning, and files.
 
 ai-sdk-threads is those two tables and a small typed store over them. Message `parts` go into `jsonb` exactly as the SDK produced them, so what comes back out is what `useChat` rendered - tool invocations and their outputs included. It is your database and your rows; this package owns no service and phones nothing home.
+
+```
+  useChat ──── POST /api/chat ────▶ chatHandler ────▶ ThreadStore ────▶ your database
+     ▲                                   │                 │
+     └───────── UIMessage stream ────────┘                 ├── ai_sdk_threads    active_leaf_id
+                                                           └── ai_sdk_messages   parent_id, parts
+```
 
 ## Features
 
@@ -122,8 +128,10 @@ ai-sdk-threads is those two tables and a small typed store over them. Message `p
 ### Prerequisites
 
 - Node.js `>=20`
-- A Postgres database and a drizzle instance pointed at it
-- `ai` `>=6 <8` (CI runs the suite against both 7.0.x and the 6.x floor)
+- `ai` `>=6 <8` - CI runs the whole suite against both **7.0.x** and the **6.x** floor
+- Postgres with a drizzle instance pointed at it, or SQLite via [`./sqlite`][docs-sqlite]
+- `drizzle-orm` `^0.45` for the `./drizzle` and `./sqlite` adapters, and `resumable-stream` `^2.2` for `./resume` - both optional peers, so you install only what you use
+- ESM only, with no CJS build
 
 ### Install
 
@@ -192,7 +200,10 @@ export default async function Page({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const messages = await store.loadMessages(id);
+  // A brand-new chat id has no thread until the first POST, and loadMessages throws for one
+  // that does not exist - so check before loading, or the first render of a new chat is a 500.
+  const thread = await store.getThread(id);
+  const messages = thread ? await store.loadMessages(id) : [];
   return <Chat id={id} initialMessages={messages} />;
 }
 ```
@@ -261,7 +272,9 @@ Nothing below is a like-for-like competitor, which is rather the point.
 | [Convex](https://www.convex.dev)                   | A whole reactive backend                        | Their platform          | No               | Per usage             |
 | Vercel's `ai-chatbot` template                     | An app to fork                                  | Yours                   | No               | Free, fork-and-own    |
 
-If you want the managed experience, take assistant-ui or Convex - they are good at it. This exists for the case where the conversation has to stay in a database you control, and where regenerate and edit need to survive a reload. If you started from the Vercel template, its tables [import straight across][docs-importing].
+This exists for the case where the conversation has to stay in a database you control, and where regenerate and edit need to survive a reload. If you started from the Vercel template, its tables [import straight across][docs-importing].
+
+<sub>Not affiliated with Vercel. "AI SDK" refers to the [`ai` package](https://ai-sdk.dev).</sub>
 
 ## FAQ
 
@@ -275,21 +288,10 @@ Only for resumable streams across more than one instance. The default stream con
 Every row records the major that wrote it in `sdk_version`, and real captured payloads from `ai` 5, 6 and 7 are committed as fixtures, so the suite reports the day a format actually changes. As of `ai` 7 stored `parts` are byte-identical across all three majors, so there is nothing to convert yet - `migrateParts` is a pass-through and says so, rather than pretending to work.
 
 **Is SQLite a second-class adapter?**
-No. 30 of the 194 tests run the identical contract against both databases, so behaviour that holds on Postgres but not SQLite fails the build. It does carry three hard constraints, all documented: an async driver, no bare `:memory:`, and `PRAGMA foreign_keys = ON`.
+No - the parity suite runs the identical contract against both, so behaviour that holds on Postgres but not SQLite fails the build. It does carry three hard constraints, all documented: an async driver, no bare `:memory:`, and `PRAGMA foreign_keys = ON`.
 
 **Can I use it without the handler?**
 Yes - the store is the product and works alone. [The docs show the hand-written route][docs-api] and name the three things that are easy to get wrong.
-
-## Requirements
-
-- Node.js `>=20`
-- `ai` `>=6 <8` - CI runs the whole suite against both **7.0.x** and the **6.x** floor
-- `drizzle-orm` `^0.45` for the `./drizzle` and `./sqlite` adapters (optional peer)
-- `resumable-stream` `^2.2` for the `./resume` module (optional peer)
-- Postgres, or SQLite via `./sqlite`
-- ESM only (no CJS build)
-
-Not affiliated with Vercel. "AI SDK" refers to the [`ai` package](https://ai-sdk.dev).
 
 ## Contributing
 
@@ -356,7 +358,6 @@ ai-sdk-threads is MIT licensed and free to use, always. If it saves you writing 
 [issue2929]: https://github.com/vercel/ai/issues/2929
 [docs]: https://ai-sdk-threads.nixrajput.com
 [docs-repo]: https://github.com/nixrajput/ai-sdk-threads-docs
-[llms]: https://ai-sdk-threads.nixrajput.com/llms.txt
 [docs-start]: https://ai-sdk-threads.nixrajput.com/en/docs/getting-started
 [docs-api]: https://ai-sdk-threads.nixrajput.com/en/docs/api/chat-handler
 [docs-secure]: https://ai-sdk-threads.nixrajput.com/en/docs/api/chat-handler#securing-a-thread
