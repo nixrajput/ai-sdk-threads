@@ -33,7 +33,7 @@ const DDL = `
 `;
 
 /** A fresh in-process Postgres with both tables, isolated per test. */
-export async function makeDb() {
+export async function makeDb(options?: { logger?: { logQuery(query: string): void } }) {
   const client = new PGlite();
   try {
     await client.exec(DDL);
@@ -43,7 +43,7 @@ export async function makeDb() {
     await client.close();
     throw error;
   }
-  return { db: drizzle(client), close: () => client.close() };
+  return { db: drizzle(client, options ?? {}), close: () => client.close() };
 }
 
 // Mirrors src/sqlite/schema.ts. Integer millisecond timestamps and text-JSON columns are the
