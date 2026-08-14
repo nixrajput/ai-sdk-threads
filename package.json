@@ -1,6 +1,6 @@
 {
   "name": "ai-sdk-threads",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Chat thread and message persistence for the Vercel AI SDK - UIMessage-native schema, branching, resumable streams, Postgres and SQLite. Your database, your data.",
   "type": "module",
   "engines": {
