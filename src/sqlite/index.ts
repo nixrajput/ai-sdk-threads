@@ -1,6 +1,6 @@
 import type { UIMessage } from "ai";
 import { generateId, validateUIMessages } from "ai";
-import { and, asc, desc, eq, isNull, lt, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import { orderPath } from "../chain.js";
 import { migrateParts } from "../migrate.js";
@@ -133,10 +133,10 @@ export function createThreadStore(
         query.userId === undefined ? undefined : eq(threads.userId, query.userId),
         cursor === undefined
           ? undefined
-          : or(
-              lt(threads.createdAt, cursor.createdAt),
-              and(eq(threads.createdAt, cursor.createdAt), lt(threads.id, cursor.id)),
-            ),
+          : // Row values, as in the Postgres adapter: the index then bounds both key columns rather
+            // than the timestamp alone - EXPLAIN QUERY PLAN reads `(created_at,id)<(?,?)` instead of
+            // `created_at<?`. sql.param applies the encoder that stores this column as epoch ms.
+            sql`(${threads.createdAt}, ${threads.id}) < (${sql.param(cursor.createdAt, threads.createdAt)}, ${sql.param(cursor.id, threads.id)})`,
       ].filter((filter) => filter !== undefined);
 
       const rows = await db

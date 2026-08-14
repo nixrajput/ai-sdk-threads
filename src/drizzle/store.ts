@@ -1,6 +1,6 @@
 import type { UIMessage } from "ai";
 import { generateId, validateUIMessages } from "ai";
-import { and, asc, desc, eq, isNull, lt, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { orderPath } from "../chain.js";
 import { migrateParts } from "../migrate.js";
@@ -131,10 +131,10 @@ export function createThreadStore(
         query.userId === undefined ? undefined : eq(threads.userId, query.userId),
         cursor === undefined
           ? undefined
-          : or(
-              lt(threads.createdAt, cursor.createdAt),
-              and(eq(threads.createdAt, cursor.createdAt), lt(threads.id, cursor.id)),
-            ),
+          : // Row values, not `a < x OR (a = x AND b < y)`: only this shape becomes an index bound, so
+            // a deep page stays O(limit) - the OR form measured 9.2ms with 50,000 rows before the
+            // cursor against 0.012ms (bench/paging.measure.ts). sql.param applies the column encoder.
+            sql`(${threads.createdAt}, ${threads.id}) < (${sql.param(cursor.createdAt, threads.createdAt)}, ${sql.param(cursor.id, threads.id)})`,
       ].filter((filter) => filter !== undefined);
 
       // limit + 1 rows: the extra row is how we know another page exists without a count.
