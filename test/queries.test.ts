@@ -72,6 +72,25 @@ test("every operation costs a fixed number of statements", async () => {
   });
 });
 
+// The count is not the whole story: `a < x OR (a = x AND b < y)` costs one statement too, but it is
+// an index *filter*, so Postgres walks the user's range from the top and discards - measured at
+// 9.2ms with 50,000 rows before the cursor, against 0.012ms for the row-value form, which the index
+// can bound (bench/paging.measure.ts). Pin the shape or the cost silently returns.
+test("the cursor page compares row values, so the index can bound it", async () => {
+  for (let i = 0; i < 3; i++) await store.createThread({ userId: "u1" });
+  const first = await store.listThreads({ userId: "u1", limit: 1 });
+  expect(first.nextCursor).toBeDefined();
+
+  queries = [];
+  await store.listThreads({ userId: "u1", limit: 1, cursor: first.nextCursor });
+  const [page] = queries;
+
+  expect(page).toMatch(
+    /\("ai_sdk_threads"\."created_at", "ai_sdk_threads"\."id"\) < \(\$\d+, \$\d+\)/,
+  );
+  expect(page).not.toMatch(/\bor\b/);
+});
+
 // A deep page is where an OFFSET scan would show up, so the cursor case is the one worth pinning.
 // Every page, not a sampled pair: the README claims one query per page, and a claim is only worth
 // what the test behind it asserts.
