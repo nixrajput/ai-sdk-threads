@@ -18,7 +18,7 @@
 [![PRs](https://img.shields.io/github/issues-pr/nixrajput/ai-sdk-threads?label=PRs)][pulls]
 
 <strong>Threads &middot; message trees &middot; branching &middot; resumable streams &middot; Postgres or SQLite &middot; zero runtime dependencies</strong><br>
-<sub><strong>Loading a thread is 2 queries</strong> whether it holds 1 message or 500 - the root-to-leaf path is walked in memory, not with a recursive CTE - and <code>listThreads</code> is <strong>one query per page at any depth</strong>: page 400 measured at <strong>1.00x</strong> the median of page 1 across 4,000 threads. Every operation's query count is <a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/test/queries.test.ts">pinned by a test</a>, so an N+1 fails CI. Also checkable: <strong>197 tests</strong>, 30 running the identical contract against both databases; <code>ai</code> <strong>6 and 7 both gated in CI</strong>, which caught the handler storing nothing on the older major; <strong>no Node globals in <code>src/</code></strong>, enforced by a second typecheck. <a href="https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml">See the runs</a>.</sub>
+<sub><strong>Loading a thread is 2 queries</strong> whether it holds 1 message or 500 - the root-to-leaf path is walked in memory, not with a recursive CTE - and <code>listThreads</code> is <strong>one query per page at any depth</strong>, with the cursor page pinned by that same test rather than only the first page. Every operation's query count is <a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/test/queries.test.ts">pinned by a test</a>, so an N+1 fails CI. Also checkable: <strong>197 tests</strong>, 30 running the identical contract against both databases; <code>ai</code> <strong>6 and 7 both gated in CI</strong>, which caught the handler storing nothing on the older major; <strong>no Node globals in <code>src/</code></strong>, enforced by a second typecheck. <a href="https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml">See the runs</a>.</sub>
 
 <br />
 
@@ -274,8 +274,8 @@ Nothing below is a like-for-like competitor, which is rather the point.
 | -------------------------------------------------- | ----------------------------------------------- | ----------------------- | ---------------- | --------------------- |
 | **ai-sdk-threads**                                 | Threads, messages, branching, resumable streams | Your Postgres or SQLite | Yes              | MIT core, self-hosted |
 | The AI SDK's persistence guide                     | A pattern to copy per app                       | Yours                   | No               | Free, hand-maintained |
-| [assistant-ui](https://www.assistant-ui.com) cloud | UI plus hosted persistence                      | Their infrastructure    | No               | Per active user       |
-| [Convex](https://www.convex.dev)                   | A whole reactive backend                        | Their platform          | No               | Per usage             |
+| [assistant-ui](https://www.assistant-ui.com) cloud | UI plus hosted persistence                      | Their infrastructure    | Runtime-side     | Per active user       |
+| [Convex](https://www.convex.dev)                   | A whole reactive backend                        | Their platform          | Yours to model   | Per usage             |
 | Vercel's `ai-chatbot` template                     | An app to fork                                  | Yours                   | No               | Free, fork-and-own    |
 
 This exists for the case where the conversation has to stay in a database you control, and where regenerate and edit need to survive a reload. If you started from the Vercel template, its tables [import straight across][docs-importing].
