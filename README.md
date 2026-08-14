@@ -261,7 +261,7 @@ Full documentation lives at **[ai-sdk-threads.nixrajput.com][docs]**.
 
 **Skip it if you…**
 
-- want a managed service with hosted sync, search and analytics today. [assistant-ui](https://www.assistant-ui.com) and [Convex](https://www.convex.dev) do that properly; this is the self-hosted core, and the store, both adapters, branching, resumable streams and the migration tooling are MIT and stay that way.
+- want a managed service with hosted sync, search and analytics today. [assistant-ui](https://www.assistant-ui.com) and [Convex](https://www.convex.dev) do that properly; this is the self-hosted core, and everything it does today stays free and MIT - the store, the route handlers, `convertToUIMessages`, branching, resumable streams, both adapters and the migration tooling.
 - need vector or semantic memory. Different problem: this stores conversations, it does not retrieve over them.
 - are on `ai` 4 or older. `ai` 5 was a rewrite, and the supported range is `>=6 <8`.
 - want chat UI components. [ai-elements](https://ai-sdk.dev/elements) and assistant-ui own that layer; this stores what they render.
