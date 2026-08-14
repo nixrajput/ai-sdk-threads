@@ -261,7 +261,7 @@ Full documentation lives at **[ai-sdk-threads.nixrajput.com][docs]**.
 
 **Skip it if you…**
 
-- want a managed service with hosted sync, search and analytics. [assistant-ui](https://www.assistant-ui.com) and [Convex](https://www.convex.dev) do that properly, and this deliberately does not.
+- want a managed service with hosted sync, search and analytics today. [assistant-ui](https://www.assistant-ui.com) and [Convex](https://www.convex.dev) do that properly; this is the self-hosted core, and the store, both adapters, branching, resumable streams and the migration tooling are MIT and stay that way.
 - need vector or semantic memory. Different problem: this stores conversations, it does not retrieve over them.
 - are on `ai` 4 or older. `ai` 5 was a rewrite, and the supported range is `>=6 <8`.
 - want chat UI components. [ai-elements](https://ai-sdk.dev/elements) and assistant-ui own that layer; this stores what they render.
@@ -272,7 +272,7 @@ Nothing below is a like-for-like competitor, which is rather the point.
 
 |                                                    | Scope                                           | Where the data lives    | Branching stored | Cost                  |
 | -------------------------------------------------- | ----------------------------------------------- | ----------------------- | ---------------- | --------------------- |
-| **ai-sdk-threads**                                 | Threads, messages, branching, resumable streams | Your Postgres or SQLite | Yes              | MIT, no service       |
+| **ai-sdk-threads**                                 | Threads, messages, branching, resumable streams | Your Postgres or SQLite | Yes              | MIT core, self-hosted |
 | The AI SDK's persistence guide                     | A pattern to copy per app                       | Yours                   | No               | Free, hand-maintained |
 | [assistant-ui](https://www.assistant-ui.com) cloud | UI plus hosted persistence                      | Their infrastructure    | No               | Per active user       |
 | [Convex](https://www.convex.dev)                   | A whole reactive backend                        | Their platform          | No               | Per usage             |
