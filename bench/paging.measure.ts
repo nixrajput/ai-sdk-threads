@@ -1,13 +1,10 @@
-// Does a deep keyset page cost what the first page costs? The README claimed a measured ratio
-// with no harness behind it, so this is the harness. Set PG_URL to measure a real server over
-// TCP; without it the same run happens in PGlite.
+// Does a deep keyset page cost what the first page costs? Backs the README's ratio.
 //
 //   RUNS=5 SAMPLES=200 npx tsx bench/paging.measure.ts
-//   PG_URL=postgres://localhost:5432/paging_bench npx tsx bench/paging.measure.ts
+//   PG_URL=postgres://you@localhost:5432/paging_bench npx tsx bench/paging.measure.ts
 //
-// Method notes, because the first attempt at this got them wrong: page 1 and the deep page are
-// sampled in randomised order (measuring page 1 first every time hands it the cold-cache cost),
-// both are warmed before timing, and created_at is spread so the index has no ties to break.
+// Sample order is randomised, both queries are warmed, and created_at is spread: measuring page 1
+// first every time hands it the cold-cache cost, and a tight seeding loop measures tie-breaking.
 import { sql } from "drizzle-orm";
 import { createThreadStore } from "../src/drizzle/index.js";
 import { threads } from "../src/drizzle/schema.js";
@@ -49,6 +46,8 @@ const DDL = `
 `;
 
 const quantile = (xs: number[], q: number) => {
+  // SAMPLES=0 would otherwise report NaN as though it were a measurement.
+  if (xs.length === 0) throw new Error("no samples: SAMPLES must be at least 1");
   const s = [...xs].sort((a, b) => a - b);
   const i = (s.length - 1) * q;
   const lo = Math.floor(i);
@@ -86,6 +85,15 @@ async function connect() {
     close: () => client.close(),
     kind: "PGlite (in-process)",
   };
+}
+
+// This drops and recreates both tables on every run. A committed script that can do that to
+// whatever URL it is handed is a footgun, so it refuses anything that does not look disposable.
+if (PG_URL && !/bench|scratch|tmp|temp/i.test(new URL(PG_URL).pathname) && !process.env.I_KNOW) {
+  throw new Error(
+    `refusing to DROP tables in "${new URL(PG_URL).pathname.slice(1)}": name the database ` +
+      `something with "bench" in it, or set I_KNOW=1 if you are certain`,
+  );
 }
 
 const conn = await connect();

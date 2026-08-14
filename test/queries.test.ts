@@ -72,10 +72,8 @@ test("every operation costs a fixed number of statements", async () => {
   });
 });
 
-// The count is not the whole story: `a < x OR (a = x AND b < y)` costs one statement too, but it is
-// an index *filter*, so Postgres walks the user's range from the top and discards - measured at
-// 9.2ms with 50,000 rows before the cursor, against 0.012ms for the row-value form, which the index
-// can bound (bench/paging.measure.ts). Pin the shape or the cost silently returns.
+// The count alone passes either way: `a < x OR (a = x AND b < y)` is one statement too, but the index
+// can only filter with it, not bound - 9.2ms with 50,000 rows before the cursor. Pin the shape.
 test("the cursor page compares row values, so the index can bound it", async () => {
   for (let i = 0; i < 3; i++) await store.createThread({ userId: "u1" });
   const first = await store.listThreads({ userId: "u1", limit: 1 });

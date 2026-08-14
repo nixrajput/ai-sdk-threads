@@ -133,11 +133,10 @@ export function createThreadStore(
         query.userId === undefined ? undefined : eq(threads.userId, query.userId),
         cursor === undefined
           ? undefined
-          : // A row-value comparison, not the OR form it replaces: only this shape becomes an index
-            // bound, so a deep page stays O(limit). The OR form is an index *filter* - SQLite
-            // scans the user's range from the top and discards, measured at 9.2ms with 50,000 rows
-            // before the cursor against 0.01ms here (bench/paging.measure.ts).
-            sql`(${threads.createdAt}, ${threads.id}) < (${cursor.createdAt.getTime()}, ${cursor.id})`,
+          : // Row values, as in the Postgres adapter: the index then bounds both key columns rather
+            // than the timestamp alone - EXPLAIN QUERY PLAN reads `(created_at,id)<(?,?)` instead of
+            // `created_at<?`. sql.param applies the encoder that stores this column as epoch ms.
+            sql`(${threads.createdAt}, ${threads.id}) < (${sql.param(cursor.createdAt, threads.createdAt)}, ${sql.param(cursor.id, threads.id)})`,
       ].filter((filter) => filter !== undefined);
 
       const rows = await db

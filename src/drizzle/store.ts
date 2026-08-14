@@ -131,11 +131,10 @@ export function createThreadStore(
         query.userId === undefined ? undefined : eq(threads.userId, query.userId),
         cursor === undefined
           ? undefined
-          : // A row-value comparison, not the OR form it replaces: only this shape becomes an index
-            // bound, so a deep page stays O(limit). The OR form is an index *filter* - Postgres
-            // scans the user's range from the top and discards, measured at 9.2ms with 50,000 rows
-            // before the cursor against 0.01ms here (bench/paging.measure.ts).
-            sql`(${threads.createdAt}, ${threads.id}) < (${cursor.createdAt}, ${cursor.id})`,
+          : // Row values, not `a < x OR (a = x AND b < y)`: only this shape becomes an index bound, so
+            // a deep page stays O(limit) - the OR form measured 9.2ms with 50,000 rows before the
+            // cursor against 0.012ms (bench/paging.measure.ts). sql.param applies the column encoder.
+            sql`(${threads.createdAt}, ${threads.id}) < (${sql.param(cursor.createdAt, threads.createdAt)}, ${sql.param(cursor.id, threads.id)})`,
       ].filter((filter) => filter !== undefined);
 
       // limit + 1 rows: the extra row is how we know another page exists without a count.
