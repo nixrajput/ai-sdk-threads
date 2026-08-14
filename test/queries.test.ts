@@ -73,20 +73,30 @@ test("every operation costs a fixed number of statements", async () => {
 });
 
 // A deep page is where an OFFSET scan would show up, so the cursor case is the one worth pinning.
+// Every page, not a sampled pair: the README claims one query per page, and a claim is only worth
+// what the test behind it asserts.
 test("paging deeper costs the same as the first page", async () => {
-  for (let i = 0; i < 45; i++) await store.createThread({ userId: "u1" });
+  const pageSize = 5;
+  const pages = 12;
+  for (let i = 0; i < pageSize * pages; i++) await store.createThread({ userId: "u1" });
 
-  const first = await store.listThreads({ userId: "u1", limit: 20 });
-  // Without this the test passes vacuously: an undefined cursor is treated as an initial page.
-  expect(first.nextCursor).toBeDefined();
-  const second = await store.listThreads({ userId: "u1", limit: 20, cursor: first.nextCursor });
-  expect(second.nextCursor).toBeDefined();
-  expect(await statements(() => store.listThreads({ userId: "u1", limit: 20 }))).toBe(1);
-  expect(
-    await statements(() =>
-      store.listThreads({ userId: "u1", limit: 20, cursor: second.nextCursor }),
-    ),
-  ).toBe(1);
+  expect(await statements(() => store.listThreads({ userId: "u1", limit: pageSize }))).toBe(1);
+
+  let cursor = (await store.listThreads({ userId: "u1", limit: pageSize })).nextCursor;
+  // Without this the loop passes vacuously: an undefined cursor is treated as an initial page.
+  expect(cursor).toBeDefined();
+
+  let walked = 0;
+  while (cursor) {
+    const counted = await statements(() =>
+      store.listThreads({ userId: "u1", limit: pageSize, cursor }),
+    );
+    expect(counted).toBe(1);
+    cursor = (await store.listThreads({ userId: "u1", limit: pageSize, cursor })).nextCursor;
+    walked += 1;
+  }
+  // The walk has to actually reach the end, or a cursor bug that stops early looks like a pass.
+  expect(walked).toBe(pages - 1);
 });
 
 // The root-to-leaf path is walked in memory (`orderPath`), not with a recursive CTE, so depth
