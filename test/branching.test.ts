@@ -278,4 +278,47 @@ describe("replaceMessage", () => {
     // Three versions in total, all preserved.
     expect((await store.siblingsOf(threadId, "m2")).siblings).toHaveLength(3);
   });
+
+  test("pruneBranches deletes only what the active leaf cannot reach", async () => {
+    const threadId = await threeTurnThread();
+    await store.appendMessages(threadId, [msg("a2", "answer to two", "assistant")]);
+    await store.replaceMessage(threadId, "m2", msg("m2", "two-edited"));
+
+    const before = await store.getTree(threadId);
+    const live = await idsOf(threadId);
+    expect(before.length).toBeGreaterThan(live.length);
+
+    const pruned = await store.pruneBranches(threadId);
+
+    expect(pruned.map((m) => m.id).sort()).toEqual(
+      before
+        .map((m) => m.id)
+        .filter((id) => !live.includes(id))
+        .sort(),
+    );
+    expect((await store.getTree(threadId)).map((m) => m.id).sort()).toEqual([...live].sort());
+    expect(await idsOf(threadId)).toEqual(live);
+  });
+
+  test("pruneBranches is a no-op on a thread that has never branched", async () => {
+    const threadId = await threeTurnThread();
+    expect(await store.pruneBranches(threadId)).toEqual([]);
+    expect(await idsOf(threadId)).toEqual(["m1", "a1", "m2"]);
+  });
+
+  // The one way this could destroy a thread: no leaf must not read as "delete everything".
+  test("pruneBranches deletes nothing when the thread has no active leaf", async () => {
+    const thread = await store.createThread({});
+    await store.appendMessages(thread.id, [msg("m1", "one")]);
+    await ctx.db
+      .update((await import("../src/drizzle/schema.js")).threads)
+      .set({ activeLeafId: null });
+
+    expect(await store.pruneBranches(thread.id)).toEqual([]);
+    expect(await store.getTree(thread.id)).toHaveLength(1);
+  });
+
+  test("pruneBranches rejects an unknown thread", async () => {
+    await expect(store.pruneBranches("nope")).rejects.toThrow(/nope/);
+  });
 });

@@ -1,6 +1,6 @@
 import type { UIMessage } from "ai";
 import { generateId, validateUIMessages } from "ai";
-import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { orderPath } from "../chain.js";
 import { migrateParts } from "../migrate.js";
@@ -297,11 +297,48 @@ export function createThreadStore(
     },
 
     async setActiveLeaf(threadId: string, messageId: string): Promise<void> {
-      await findMessage(db, threadId, messageId);
-      await db
-        .update(threads)
-        .set({ activeLeafId: messageId, updatedAt: new Date() })
-        .where(eq(threads.id, threadId));
+      await db.transaction(async (tx) => {
+        await lockThread(tx, threadId);
+        await findMessage(tx, threadId, messageId);
+        await tx
+          .update(threads)
+          .set({ activeLeafId: messageId, updatedAt: new Date() })
+          .where(eq(threads.id, threadId));
+      });
+    },
+
+    async pruneBranches(threadId: string): Promise<StoredMessage[]> {
+      return db.transaction(async (tx) => {
+        // Without the lock a concurrent setActiveLeaf can point at a row this transaction deletes.
+        const thread = await lockThread(tx, threadId);
+        // No leaf means nothing is reachable, which must not be read as "delete everything".
+        if (thread.activeLeafId === null) return [];
+
+        const rows = (await tx.select().from(messages).where(eq(messages.threadId, threadId))).map(
+          toStoredMessage,
+        );
+        // A cycle or broken chain throws here: the rows it could not walk are the rows it would delete.
+        const keep = new Set(orderPath(rows, thread.activeLeafId).map((row) => row.id));
+        const drop = rows.filter((row) => !keep.has(row.id));
+        if (drop.length === 0) return [];
+
+        await tx.delete(messages).where(
+          and(
+            eq(messages.threadId, threadId),
+            inArray(
+              messages.id,
+              drop.map((row) => row.id),
+            ),
+          ),
+        );
+        await tx.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, threadId));
+        // Ordered like siblingsOf, so callers see one ordering across the branching API.
+        return drop.sort(
+          (a, b) =>
+            a.createdAt.getTime() - b.createdAt.getTime() ||
+            (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+        );
+      });
     },
 
     async getTree(threadId: string): Promise<StoredMessage[]> {

@@ -18,7 +18,7 @@
 [![PRs](https://img.shields.io/github/issues-pr/nixrajput/ai-sdk-threads?label=PRs)][pulls]
 
 <strong>Threads &middot; message trees &middot; branching &middot; resumable streams &middot; Postgres or SQLite &middot; zero runtime dependencies</strong><br>
-<sub><strong>Loading a thread is 2 queries</strong> whether it holds 1 message or 500 - the root-to-leaf path is walked in memory, not with a recursive CTE - and <code>listThreads</code> is <strong>one query per page</strong> - every cursor page of a full walk, asserted by that same test - which held at <strong>1.13x the first page 50,000 rows deep</strong> on Postgres 16 over 100,000 threads (<a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/bench/paging.measure.ts">the harness is in the repo</a>). Every operation's query count is <a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/test/queries.test.ts">pinned by a test</a>, so an N+1 fails CI. Also checkable: <strong>198 tests</strong>, 30 running the identical contract against both databases; <code>ai</code> <strong>6 and 7 both gated in CI</strong>, which caught the handler storing nothing on the older major; <strong>no Node globals in <code>src/</code></strong>, enforced by a second typecheck. <a href="https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml">See the runs</a>.</sub>
+<sub><strong>Loading a thread is 2 queries</strong> whether it holds 1 message or 500 - the root-to-leaf path is walked in memory, not with a recursive CTE - and <code>listThreads</code> is <strong>one query per page</strong> - every cursor page of a full walk, asserted by that same test - which held at <strong>1.13x the first page 50,000 rows deep</strong> on Postgres 16 over 100,000 threads (<a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/bench/paging.measure.ts">the harness is in the repo</a>). Every operation's query count is <a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/test/queries.test.ts">pinned by a test</a>, so an N+1 fails CI. Also checkable: <strong>215 tests</strong>, 32 running the identical contract against both databases; <code>ai</code> <strong>6 and 7 both gated in CI</strong>, which caught the handler storing nothing on the older major; <strong>no Node globals in <code>src/</code></strong>, enforced by a second typecheck. <a href="https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml">See the runs</a>.</sub>
 
 <br />
 
@@ -228,7 +228,7 @@ m1  user       "Explain closures, briefly."
 └── a2  assistant  "Think of a backpack the function carries…"  live path
 ```
 
-`loadMessages` returns the root-to-leaf path, so the conversation reads as one thread while every abandoned branch stays queryable. Point `setActiveLeaf` at `a1` and the older answer is live again, with whatever replies hung off it.
+`loadMessages` returns the root-to-leaf path, so the conversation reads as one thread while every abandoned branch stays queryable. Point `setActiveLeaf` at `a1` and the older answer is live again, with whatever replies hung off it. Keeping them is not free - the path is walked in memory, so a thread's dead branches are fetched on every read - and [`pruneBranches`][docs-branching] discards them when you decide to, never automatically.
 
 You can [run this against a real Postgres in your browser][docs-playground] - the playground compiles the database to WebAssembly and drives this package's published build, showing the call it made and the rows it produced.
 

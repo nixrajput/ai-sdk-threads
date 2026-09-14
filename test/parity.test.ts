@@ -201,6 +201,19 @@ describe.each(adapters)("ThreadStore contract (%s)", (_name, makeHarness) => {
       expect(await idsOf(threadId)).toEqual(["m1"]);
     });
 
+    test("pruneBranches drops the unreachable rows and leaves the live path", async () => {
+      const threadId = await threeTurns();
+      await store.forkAt(threadId, "m2", [msg("m2b", "edited")]);
+      expect(await store.getTree(threadId)).toHaveLength(4);
+
+      const pruned = await store.pruneBranches(threadId);
+      expect(pruned.map((m) => m.id)).toEqual(["m2"]);
+      expect(await idsOf(threadId)).toEqual(["m1", "a1", "m2b"]);
+      expect(await store.getTree(threadId)).toHaveLength(3);
+      // Idempotent: a second pass finds nothing left to drop.
+      expect(await store.pruneBranches(threadId)).toEqual([]);
+    });
+
     test("every branching method refuses another thread's message", async () => {
       const threadId = await threeTurns();
       const other = await store.createThread({});
