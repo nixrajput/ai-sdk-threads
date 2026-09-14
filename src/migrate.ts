@@ -5,7 +5,8 @@ export const MIGRATABLE_SDK_MAJORS = [5, 6, 7] as const;
 
 /**
  * Brings stored `parts` up to the current `ai` major. A pass-through for 5 and 6 because their
- * payloads are byte-identical to 7's - measured, see `test/fixtures/parts-v*`. Older majors throw.
+ * payloads are byte-identical to 7's, asserted by `test/compat.test.ts` against real captured
+ * fixtures rather than taken on trust. Older majors throw.
  */
 export function migrateParts(parts: unknown[], fromVersion: number): unknown[] {
   if (fromVersion >= CURRENT_SDK_MAJOR) return parts;

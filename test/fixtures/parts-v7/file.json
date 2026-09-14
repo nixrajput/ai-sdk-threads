@@ -1,0 +1,15 @@
+[
+  {
+    "type": "step-start"
+  },
+  {
+    "type": "file",
+    "mediaType": "image/png",
+    "url": "data:image/png;base64,iVBORw0KGgo="
+  },
+  {
+    "type": "text",
+    "text": "here it is",
+    "state": "done"
+  }
+]

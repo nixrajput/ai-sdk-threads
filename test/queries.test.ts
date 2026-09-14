@@ -52,6 +52,8 @@ test("every operation costs a fixed number of statements", async () => {
     regenerateFrom: await statements(() => store.regenerateFrom(id, "m10")),
     forkAt: await statements(() => store.forkAt(id, "m10", [msg("fork")])),
     replaceMessage: await statements(() => store.replaceMessage(id, "m10", msg("m10"))),
+    // One delete covering every unreachable row, not one delete per row.
+    pruneBranches: await statements(() => store.pruneBranches(id)),
     updateThread: await statements(() => store.updateThread(id, { title: "renamed" })),
     // Last: the cascade takes its own messages with it.
     deleteThread: await statements(() => store.deleteThread(id)),
@@ -67,6 +69,7 @@ test("every operation costs a fixed number of statements", async () => {
     regenerateFrom: 3,
     forkAt: 4,
     replaceMessage: 6,
+    pruneBranches: 4,
     updateThread: 1,
     deleteThread: 1,
   });

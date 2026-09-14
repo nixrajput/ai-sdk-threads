@@ -559,6 +559,52 @@ describe("chatHandler branching", () => {
     expect(await branchStore.getTree("t1")).toHaveLength(3);
   });
 
+  // The full path a real app takes: pruning must not strand the leaf or corrupt the next turn.
+  test("pruning after a regenerate leaves the thread usable for the next turn", async () => {
+    const original = await firstTurn();
+
+    await (
+      await handlerFor("second answer")(
+        post({
+          id: "t1",
+          messages: [userMsg("m1", "hello")],
+          trigger: "regenerate-message",
+          messageId: original?.id,
+        }),
+      )
+    ).text();
+    await settled("t1", 2);
+    expect(await branchStore.getTree("t1")).toHaveLength(3);
+
+    const dropped = await branchStore.pruneBranches("t1");
+    expect(dropped.map((m) => m.id)).toEqual([original?.id]);
+    expect(await branchStore.getTree("t1")).toHaveLength(2);
+
+    const live = await branchStore.loadMessages("t1");
+    expect(live).toHaveLength(2);
+    expect(JSON.stringify(live[1]?.parts)).toContain("second answer");
+
+    const seen: ModelMessage[][] = [];
+    const next = chatHandler({
+      store: branchStore,
+      execute: ({ modelMessages }) => {
+        seen.push(modelMessages);
+        return streamText({ model: textModel(["third answer"]), messages: modelMessages });
+      },
+    });
+    const response = await next(
+      post({ id: "t1", messages: [userMsg("m1", "hello"), userMsg("m2", "again")] }),
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+
+    const after = await settled("t1", 4);
+    expect(JSON.stringify(after[3]?.parts)).toContain("third answer");
+    // seen[0] is what reached the model: the pruned sibling must not be in it.
+    expect(JSON.stringify(seen[0])).not.toContain("first answer");
+    expect(await branchStore.getTree("t1")).toHaveLength(4);
+  });
+
   test("an edit forks instead of appending", async () => {
     await firstTurn();
 

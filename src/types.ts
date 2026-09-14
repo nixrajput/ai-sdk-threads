@@ -77,6 +77,11 @@ export interface BranchingStore {
   setActiveLeaf(threadId: string, messageId: string): Promise<void>;
   /** Every message in the thread, flat; walk `parentId` to rebuild the shape. */
   getTree(threadId: string): Promise<StoredMessage[]>;
+  /**
+   * Permanently deletes every message the active leaf cannot reach, and returns them. Never called
+   * for you - discarding branches is the caller's decision. A thread with no active leaf prunes nothing.
+   */
+  pruneBranches(threadId: string): Promise<StoredMessage[]>;
 }
 
 /** Stream state, kept out of `ThreadStore` because only `resumableChat` uses it. */
