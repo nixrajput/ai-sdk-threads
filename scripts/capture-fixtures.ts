@@ -15,7 +15,15 @@ import { z } from "zod";
 const mocks = testUtils as unknown as Record<string, unknown>;
 // v7 ships MockLanguageModelV4, v6 MockLanguageModelV3 - the same detection test/model.ts uses.
 const isV4 = mocks.MockLanguageModelV4 !== undefined;
-const MockModel = (mocks.MockLanguageModelV4 ?? mocks.MockLanguageModelV3) as new (o: {
+const mock = mocks.MockLanguageModelV4 ?? mocks.MockLanguageModelV3;
+if (!mock) {
+  // Every other chunk shape below is spec-specific too, so failing here beats failing deeper.
+  throw new Error(
+    "ai-sdk-threads: no known mock model in ai/test. This script captures ai 6 and 7; a newer " +
+      "major needs its chunk shapes added before its fixtures can be captured.",
+  );
+}
+const MockModel = mock as new (o: {
   doStream: () => Promise<{ stream: ReadableStream<unknown> }>;
 }) => never;
 
