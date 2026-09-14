@@ -341,11 +341,14 @@ export function createThreadStore(
     },
 
     async setActiveLeaf(threadId: string, messageId: string): Promise<void> {
-      await findMessage(db, threadId, messageId);
-      await db
-        .update(threads)
-        .set({ activeLeafId: messageId, updatedAt: new Date() })
-        .where(eq(threads.id, threadId));
+      // No row lock in SQLite; one transaction still stops a prune splitting the check from the write.
+      await db.transaction(async (tx) => {
+        await findMessage(tx, threadId, messageId);
+        await tx
+          .update(threads)
+          .set({ activeLeafId: messageId, updatedAt: new Date() })
+          .where(eq(threads.id, threadId));
+      });
     },
 
     async pruneBranches(threadId: string): Promise<StoredMessage[]> {

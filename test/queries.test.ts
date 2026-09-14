@@ -65,7 +65,8 @@ test("every operation costs a fixed number of statements", async () => {
     appendMessages: 3,
     getTree: 2,
     siblingsOf: 2,
-    setActiveLeaf: 2,
+    // Three, not two: the row lock is what stops a concurrent prune deleting this leaf.
+    setActiveLeaf: 3,
     regenerateFrom: 3,
     forkAt: 4,
     replaceMessage: 6,
@@ -127,4 +128,19 @@ test("loading a thread costs the same at any depth", async () => {
     expect(await statements(() => store.loadMessages(id))).toBe(2);
     expect(await store.loadMessages(id)).toHaveLength(depth);
   }
+});
+
+// Pinned on the emitted SQL: a passing count says nothing about whether the row was locked.
+test("pruning locks the thread row, like every other write path", async () => {
+  const id = await threadOfDepth(4);
+  queries = [];
+  await store.pruneBranches(id);
+  expect(queries[0]).toMatch(/select .*from "ai_sdk_threads".* for update/is);
+});
+
+test("switching the active leaf locks the thread row too", async () => {
+  const id = await threadOfDepth(4);
+  queries = [];
+  await store.setActiveLeaf(id, "m1");
+  expect(queries.join("\n")).toMatch(/select .*from "ai_sdk_threads".* for update/is);
 });

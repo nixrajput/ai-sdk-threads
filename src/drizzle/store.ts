@@ -297,21 +297,20 @@ export function createThreadStore(
     },
 
     async setActiveLeaf(threadId: string, messageId: string): Promise<void> {
-      await findMessage(db, threadId, messageId);
-      await db
-        .update(threads)
-        .set({ activeLeafId: messageId, updatedAt: new Date() })
-        .where(eq(threads.id, threadId));
+      await db.transaction(async (tx) => {
+        await lockThread(tx, threadId);
+        await findMessage(tx, threadId, messageId);
+        await tx
+          .update(threads)
+          .set({ activeLeafId: messageId, updatedAt: new Date() })
+          .where(eq(threads.id, threadId));
+      });
     },
 
     async pruneBranches(threadId: string): Promise<StoredMessage[]> {
       return db.transaction(async (tx) => {
-        const [thread] = await tx
-          .select({ activeLeafId: threads.activeLeafId })
-          .from(threads)
-          .where(eq(threads.id, threadId))
-          .limit(1);
-        if (!thread) throw notFound(threadId);
+        // Without the lock a concurrent setActiveLeaf can point at a row this transaction deletes.
+        const thread = await lockThread(tx, threadId);
         // No leaf means nothing is reachable, which must not be read as "delete everything".
         if (thread.activeLeafId === null) return [];
 
