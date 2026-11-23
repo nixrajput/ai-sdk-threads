@@ -106,7 +106,7 @@ jobs:
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
       - name: Full report
         env:
-          NO_COLOR: '1'
+          NO_COLOR: "1"
         run: |
           {
             echo '## ai-sdk-threads report'
