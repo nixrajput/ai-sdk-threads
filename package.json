@@ -50,7 +50,7 @@
     "gate": "npm run lint && npm run ts:check && npm test && npm run build"
   },
   "peerDependencies": {
-    "ai": ">=6.0.214 <8",
+    "ai": ">=6.0.214 <7 || >=7.0.4 <8",
     "drizzle-orm": "^0.45.2",
     "resumable-stream": "^2.2.0"
   },
