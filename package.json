@@ -1,6 +1,6 @@
 {
   "name": "ai-sdk-threads",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Chat thread and message persistence for the Vercel AI SDK - UIMessage-native schema, branching, resumable streams, Postgres and SQLite. Your database, your data.",
   "type": "module",
   "engines": {
@@ -50,8 +50,8 @@
     "gate": "npm run lint && npm run ts:check && npm test && npm run build"
   },
   "peerDependencies": {
-    "ai": ">=6.0.0 <8",
-    "drizzle-orm": "^0.45.0",
+    "ai": ">=6.0.214 <7 || >=7.0.4 <8",
+    "drizzle-orm": "^0.45.2",
     "resumable-stream": "^2.2.0"
   },
   "peerDependenciesMeta": {
@@ -63,21 +63,21 @@
     }
   },
   "devDependencies": {
-    "@arethetypeswrong/cli": "^0.18.5",
-    "@biomejs/biome": "^2.5.7",
-    "@electric-sql/pglite": "^0.5.4",
-    "@libsql/client": "^0.17.4",
-    "@types/node": "^26.2.0",
-    "@vitest/coverage-v8": "^4.1.10",
-    "ai": "^7.0.58",
-    "drizzle-orm": "^0.45.2",
-    "knip": "^6.32.0",
-    "publint": "^0.3.23",
-    "resumable-stream": "^2.2.12",
-    "tsdown": "^0.22.14",
-    "typescript": "^5.9.0",
-    "vitest": "^4.1.10",
-    "zod": "^4.4.3"
+    "@arethetypeswrong/cli": "0.18.5",
+    "@biomejs/biome": "2.6.8",
+    "@electric-sql/pglite": "0.5.17",
+    "@libsql/client": "0.18.0",
+    "@types/node": "26.6.6",
+    "@vitest/coverage-v8": "4.1.12",
+    "ai": "7.0.179",
+    "drizzle-orm": "0.45.4",
+    "knip": "6.48.0",
+    "publint": "0.3.25",
+    "resumable-stream": "2.2.13",
+    "tsdown": "0.23.7",
+    "typescript": "7.0.2",
+    "vitest": "4.1.12",
+    "zod": "4.6.7"
   },
   "repository": {
     "type": "git",
