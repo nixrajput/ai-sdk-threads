@@ -128,7 +128,7 @@ ai-sdk-threads is those two tables and a small typed store over them. Message `p
 ### Prerequisites
 
 - Node.js `>=20`
-- `ai` `>=6 <8` - CI runs the whole suite against both **7.0.x** and the **6.x** floor
+- `ai` `>=6.0.214 <8` - CI runs the whole suite against both **7.0.x** and the **6.x** floor
 - Postgres with a drizzle instance pointed at it, or SQLite via [`./sqlite`][docs-sqlite]
 - `drizzle-orm` `^0.45.2` for the `./drizzle` and `./sqlite` adapters, and `resumable-stream` `^2.2` for `./resume` - both optional peers, so you install only what you use
 - ESM only, with no CJS build
@@ -263,7 +263,7 @@ Full documentation lives at **[ai-sdk-threads.nixrajput.com][docs]**.
 
 - want a managed service with hosted sync, search and analytics today. [assistant-ui](https://www.assistant-ui.com) and [Convex](https://www.convex.dev) do that properly; this is the self-hosted core, and everything it does today stays free and MIT - the store, the route handlers, `convertToUIMessages`, branching, resumable streams, both adapters and the migration tooling.
 - need vector or semantic memory. Different problem: this stores conversations, it does not retrieve over them.
-- are on `ai` 4 or older. `ai` 5 was a rewrite, and the supported range is `>=6 <8`.
+- are on `ai` 4 or older. `ai` 5 was a rewrite, and the supported range is `>=6.0.214 <8`.
 - want chat UI components. [ai-elements](https://ai-sdk.dev/elements) and assistant-ui own that layer; this stores what they render.
 
 ## Compared to

@@ -14,7 +14,7 @@ Last updated: 2026-08-08
 | Build         | tsdown (CLI flags, not a config file) + publint + attw                            |
 | Tests         | vitest against PGlite - real Postgres semantics, in-process, no Docker            |
 | Lint / format | Biome - double quotes, semicolons, trailing commas, 100 columns                   |
-| Peers         | `ai` (`>=6 <8`, dev-tested on 7.0.x); `drizzle-orm` `^0.45.2` (optional)          |
+| Peers         | `ai` (`>=6.0.214 <8`, dev-tested on 7.0.x); `drizzle-orm` `^0.45.2` (optional)    |
 | Runtime deps  | none. `ai`, `drizzle-orm` and `resumable-stream` are peers, the last two optional |
 
 ### Layout
