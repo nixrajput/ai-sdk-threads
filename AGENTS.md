@@ -82,7 +82,7 @@ Both adapters share `src/store-core.ts`, and each writes its own queries. `test/
 
 The SQLite adapter needs an **async** driver (libsql). Writes use interactive transactions with an async callback. The better-sqlite3 driver rejects that callback, Bun's driver does not await it, and D1 has no interactive transactions. On those drivers, atomicity would be lost silently rather than reported.
 
-CI runs the suite against the **ai 6 floor** as well as 7, because `peerDependencies` claim `>=6 <8`. That job is not ceremony. It caught the handler passing only ai 7's `onEnd`, so no reply was ever persisted on ai 6. The handler now passes both `onEnd` and `onFinish`, guarded so only one fires. The test model rig in `test/model.ts` detects which provider spec the installed major ships. Keep it that way, or the v6 job stops exercising the streaming code.
+CI runs the suite against the **ai 6 floor** as well as 7, because `peerDependencies` claim `>=6.0.214 <7 || >=7.0.4 <8`. That job is not ceremony. It caught the handler passing only ai 7's `onEnd`, so no reply was ever persisted on ai 6. The handler now passes both `onEnd` and `onFinish`, guarded so only one fires. The test model rig in `test/model.ts` detects which provider spec the installed major ships. Keep it that way, or the v6 job stops exercising the streaming code.
 
 Stored `UIMessage.parts` are identical across ai 5, 6 and 7. That is measured: `test/fixtures/parts-v{5,6}` hold real captured payloads and `test/compat.test.ts` asserts the current SDK still reads them. `migrateParts` is therefore a pass-through today, and those fixtures are the tripwire that tells you when it stops being one.
 
