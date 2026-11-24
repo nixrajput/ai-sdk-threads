@@ -260,4 +260,16 @@ describe.skipIf(!builtBinExists)("the bin actually runs", () => {
   ])("exits 1 on %s", async (args) => {
     expect((await run(args as string[])).code).toBe(1);
   });
+
+  test("never echoes a connection string, which carries the password", async () => {
+    const url = "postgres://user:s3cret-pw@db.example.test/app";
+    for (const args of [
+      ["--dry-run", url],
+      ["migrate", "--database-url", url],
+    ]) {
+      const result = await run(args);
+      expect(result.code).toBe(1);
+      expect(result.stdout + result.stderr).not.toContain("s3cret-pw");
+    }
+  });
 });

@@ -26,3 +26,11 @@ coverage/
 *.crt
 *.cert
 secrets/
+
+# Local databases (SQLite files and their journals).
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*

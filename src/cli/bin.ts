@@ -72,7 +72,8 @@ export async function run(argv: string[]): Promise<number> {
     return command === undefined && !values.help ? 1 : 0;
   }
   if (command !== "migrate" && command !== "import-vercel") {
-    console.error(`ai-sdk-threads: unknown command "${command}"\n\n${USAGE}`);
+    // Not echoed: a misplaced connection string lands here, and it carries the password.
+    console.error(`ai-sdk-threads: unknown command\n\n${USAGE}`);
     return 1;
   }
   const databaseUrl = values["database-url"];

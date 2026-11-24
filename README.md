@@ -18,7 +18,7 @@
 [![PRs](https://img.shields.io/github/issues-pr/nixrajput/ai-sdk-threads?label=PRs)][pulls]
 
 <strong>Threads &middot; message trees &middot; branching &middot; resumable streams &middot; Postgres or SQLite &middot; zero runtime dependencies</strong><br>
-<sub><strong>Loading a thread is 2 queries</strong> whether it holds 1 message or 500 - the root-to-leaf path is walked in memory, not with a recursive CTE - and <code>listThreads</code> is <strong>one query per page</strong> - every cursor page of a full walk, asserted by that same test - which held at <strong>1.13x the first page 50,000 rows deep</strong> on Postgres 16 over 100,000 threads (<a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/bench/paging.measure.ts">the harness is in the repo</a>). Every operation's query count is <a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/test/queries.test.ts">pinned by a test</a>, so an N+1 fails CI. Also checkable: <strong>215 tests</strong>, 32 running the identical contract against both databases; <code>ai</code> <strong>6 and 7 both gated in CI</strong>, which caught the handler storing nothing on the older major; <strong>no Node globals in <code>src/</code></strong>, enforced by a second typecheck. <a href="https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml">See the runs</a>.</sub>
+<sub><strong>Loading a thread is 2 queries</strong> whether it holds 1 message or 500 - the root-to-leaf path is walked in memory, not with a recursive CTE - and <code>listThreads</code> is <strong>one query per page</strong> - every cursor page of a full walk, asserted by that same test - which held at <strong>1.13x the first page 50,000 rows deep</strong> on Postgres 16 over 100,000 threads (<a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/bench/paging.measure.ts">the harness is in the repo</a>). Every operation's query count is <a href="https://github.com/nixrajput/ai-sdk-threads/blob/main/test/queries.test.ts">pinned by a test</a>, so an N+1 fails CI. Also checkable: <strong>216 tests</strong>, 32 running the identical contract against both databases; <code>ai</code> <strong>6 and 7 both gated in CI</strong>, which caught the handler storing nothing on the older major; <strong>no Node globals in <code>src/</code></strong>, enforced by a second typecheck. <a href="https://github.com/nixrajput/ai-sdk-threads/actions/workflows/ci.yml">See the runs</a>.</sub>
 
 <br />
 
@@ -128,9 +128,9 @@ ai-sdk-threads is those two tables and a small typed store over them. Message `p
 ### Prerequisites
 
 - Node.js `>=20`
-- `ai` `>=6 <8` - CI runs the whole suite against both **7.0.x** and the **6.x** floor
+- `ai` `>=6.0.214 <7 || >=7.0.4 <8` - CI runs the whole suite against both **7.0.x** and the **6.x** floor
 - Postgres with a drizzle instance pointed at it, or SQLite via [`./sqlite`][docs-sqlite]
-- `drizzle-orm` `^0.45` for the `./drizzle` and `./sqlite` adapters, and `resumable-stream` `^2.2` for `./resume` - both optional peers, so you install only what you use
+- `drizzle-orm` `^0.45.2` for the `./drizzle` and `./sqlite` adapters, and `resumable-stream` `^2.2` for `./resume` - both optional peers, so you install only what you use
 - ESM only, with no CJS build
 
 ### Install
@@ -263,7 +263,7 @@ Full documentation lives at **[ai-sdk-threads.nixrajput.com][docs]**.
 
 - want a managed service with hosted sync, search and analytics today. [assistant-ui](https://www.assistant-ui.com) and [Convex](https://www.convex.dev) do that properly; this is the self-hosted core, and everything it does today stays free and MIT - the store, the route handlers, `convertToUIMessages`, branching, resumable streams, both adapters and the migration tooling.
 - need vector or semantic memory. Different problem: this stores conversations, it does not retrieve over them.
-- are on `ai` 4 or older. `ai` 5 was a rewrite, and the supported range is `>=6 <8`.
+- are on `ai` 4 or older. `ai` 5 was a rewrite, and the supported range is `>=6.0.214 <7 || >=7.0.4 <8`.
 - want chat UI components. [ai-elements](https://ai-sdk.dev/elements) and assistant-ui own that layer; this stores what they render.
 
 ## Compared to
