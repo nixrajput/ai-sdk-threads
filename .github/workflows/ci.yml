@@ -40,7 +40,7 @@ jobs:
 
   # package.json declares engines.node >=20, so the floor has to be exercised.
   # Kept as its own job rather than a matrix on `build`: a matrix would rename
-  # the check to "build (24)" and break the required status check on main.
+  # the check to "build (26)" and break the required status check on main.
   build-node-floor:
     name: build (node 20 floor)
     runs-on: ubuntu-latest
@@ -74,7 +74,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version-file: .nvmrc
       - name: Install
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
