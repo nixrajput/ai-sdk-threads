@@ -1,6 +1,6 @@
 # AI Agent Guidelines
 
-Last updated: 2026-10-07
+Last updated: 2026-11-24
 
 ---
 
@@ -90,7 +90,7 @@ Stored `UIMessage.parts` are identical across ai 5, 6 and 7. That is measured: `
 
 - Conventional Commits, imperative subject `<=` 50 chars, no trailing period, no `Co-Authored-By` or `Generated with` trailers.
 - Never use em-dashes anywhere - in code, comments, commits, docs, or PR text. Use a hyphen.
-- Every PR that changes anything users receive bumps `package.json` version. The CI gate `version bumped` enforces it. The gate waives itself when a PR touches only `.github`, `.claude`, `.githooks`, `scripts`, `bench`, or the governance docs. `README.md` is excluded from that waiver, because it ships in the tarball.
+- Every PR that changes anything users receive bumps `package.json` version. The CI gate `version bumped` enforces it. The gate waives itself when a PR touches only `.github`, `.claude`, `.githooks`, `scripts`, `bench`, `.nvmrc`, or the governance docs. `README.md` is excluded from that waiver, because it ships in the tarball.
 - The PR title becomes the squash commit message.
 - `main` is protected: PR required, squash-only merges.
 - The README documents **shipped features only** - no roadmap, no plans. Planning artifacts live outside this repo and are never committed.
